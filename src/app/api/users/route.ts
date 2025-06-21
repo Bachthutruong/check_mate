@@ -49,7 +49,8 @@ export async function POST(req: NextRequest) {
         
         console.log(`Creating user '${name}' with username '${username}' and temp password '${tempPassword}'`);
 
-        const newUser = new UserModel({
+        // Use UserModel.create for a more direct and reliable save operation.
+        const newUser = await UserModel.create({
             name,
             username,
             password: hashedPassword,
@@ -57,20 +58,18 @@ export async function POST(req: NextRequest) {
             storeIds: storeIds || []
         });
 
-        const savedUser = await newUser.save();
-        
-        if (savedUser.storeIds && savedUser.storeIds.length > 0) {
+        if (newUser.storeIds && newUser.storeIds.length > 0) {
             await StoreModel.updateMany(
-                { _id: { $in: savedUser.storeIds } },
-                { $push: { employeeIds: savedUser._id } }
+                { _id: { $in: newUser.storeIds } },
+                { $push: { employeeIds: newUser._id } }
             );
         }
         
-        const userObject = savedUser.toObject();
+        const userObject = newUser.toObject();
         // Do not return password, even the temporary one
         delete userObject.password;
 
-        return NextResponse.json(JSON.parse(JSON.stringify(userObject)), { status: 201 });
+        return NextResponse.json(userObject, { status: 201 });
     } catch (error: any) {
         console.error("Error creating user:", error);
         if (error.name === 'ValidationError') {

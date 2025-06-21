@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Username and password are required' }, { status: 400 });
     }
 
-    // Explicitly select password for comparison
+    // Explicitly select password for comparison and use lean() for a plain JS object
     const user = await UserModel.findOne({ username }).select('+password').lean();
 
     if (!user) {
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       path: '/',
     });
     
-    // Remove password before sending the response
+    // The user object from lean() is already clean, but we'll remove the password just in case.
     const { password: _, ...userResult } = user;
 
     return NextResponse.json(userResult);

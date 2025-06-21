@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // Self-registration always creates an admin with no stores initially.
-        const newUser = new UserModel({
+        // Use UserModel.create for a more direct and reliable save operation.
+        const savedUser = await UserModel.create({
             name,
             username,
             password: hashedPassword,
@@ -30,8 +30,6 @@ export async function POST(req: NextRequest) {
             storeIds: []
         });
         
-        const savedUser = await newUser.save();
-
         const userObject = savedUser.toObject();
         delete userObject.password;
 
