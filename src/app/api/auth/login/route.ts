@@ -15,15 +15,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Username and password are required' }, { status: 400 });
     }
 
-    // Use .lean() to get a plain JS object
-    // No need for .select('+password') since we removed `select: false` from the model
-    const user = await UserModel.findOne({ username }).lean();
+    // Explicitly select password for comparison
+    const user = await UserModel.findOne({ username }).select('+password').lean();
 
     if (!user) {
       return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
     }
     
-    // user.password is now guaranteed to be the hash from the DB if user is found
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {

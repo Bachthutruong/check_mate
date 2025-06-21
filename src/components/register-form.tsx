@@ -31,10 +31,10 @@ export function RegistrationForm() {
     setIsLoading(true);
 
     try {
-      const res = await fetch('/api/users', {
+      const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, username, password, role: 'admin', storeIds: [] }),
+        body: JSON.stringify({ name, username, password }),
       });
 
       if (!res.ok) {

@@ -5,6 +5,7 @@ import { seedDatabase } from '@/lib/seed';
 import UserModel from '@/models/User';
 import StoreModel from '@/models/Store';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 
 export async function GET(req: NextRequest) {
     await connectMongo();
@@ -22,22 +23,31 @@ export async function GET(req: NextRequest) {
     }
 }
 
+// This POST handler is now for internal use by admins creating other users (employees).
+// It auto-generates username and password.
 export async function POST(req: NextRequest) {
     await connectMongo();
     try {
         const body = await req.json();
-        const { name, username, password, role, storeIds } = body;
+        const { name, role, storeIds } = body;
 
-        if (!name || !username || !password || !role) {
-            return NextResponse.json({ message: 'Name, username, password, and role are required' }, { status: 400 });
+        if (!name || !role) {
+            return NextResponse.json({ message: 'Name and role are required' }, { status: 400 });
         }
 
-        const existingUser = await UserModel.findOne({ username }).lean();
-        if (existingUser) {
-            return NextResponse.json({ message: 'Username already exists' }, { status: 409 });
+        // Auto-generate username from name to ensure uniqueness
+        let username = name.toLowerCase().replace(/\s+/g, '.') + Math.floor(Math.random() * 1000);
+        let existingUser = await UserModel.findOne({ username }).lean();
+        while (existingUser) {
+            username = name.toLowerCase().replace(/\s+/g, '.') + Math.floor(Math.random() * 1000);
+            existingUser = await UserModel.findOne({ username }).lean();
         }
-
-        const hashedPassword = await bcrypt.hash(password, 10);
+        
+        // Auto-generate a secure random password
+        const tempPassword = crypto.randomBytes(8).toString('hex');
+        const hashedPassword = await bcrypt.hash(tempPassword, 10);
+        
+        console.log(`Creating user '${name}' with username '${username}' and temp password '${tempPassword}'`);
 
         const newUser = await UserModel.create({
             name,
@@ -55,6 +65,7 @@ export async function POST(req: NextRequest) {
         }
         
         const userObject = newUser.toObject();
+        // Do not return password, even the temporary one
         delete userObject.password;
 
         return NextResponse.json(JSON.parse(JSON.stringify(userObject)), { status: 201 });
