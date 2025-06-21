@@ -1,52 +1,53 @@
-// In a real app, this data would be fetched from a database like MongoDB.
-// For this example, we're using in-memory arrays.
+
+import { Types } from 'mongoose';
 
 export type User = {
-  id: number;
+  _id?: string;
   name: string;
   role: 'admin' | 'employee';
-  storeIds: number[];
+  storeIds: string[];
 };
 
 export type Product = {
-  id: number;
+  _id?: string;
   name: string;
   category: string;
   barcode: string;
-  storeId: number;
+  storeId: string;
 };
 
 export type Store = {
-  id: number;
+  _id?: string;
   name: string;
-  employeeIds: number[];
+  employeeIds: string[];
 };
 
 export type InventoryCheck = {
-  id: string;
-  storeId: number;
+  _id?: string;
+  storeId: string;
   storeName: string;
   employeeName: string;
   date: Date;
   status: 'Completed' | 'Shortage';
-  checkedItems: number[];
+  checkedItems: string[];
   missingItems: Product[];
 };
 
-export let users: User[] = [
+// Raw data for seeding the database
+export const initialUsers = [
   { id: 1, name: 'Admin User', role: 'admin', storeIds: [1, 2, 3] },
   { id: 2, name: 'John Doe', role: 'employee', storeIds: [1] },
   { id: 3, name: 'Jane Smith', role: 'employee', storeIds: [2] },
   { id: 4, name: 'Emily White', role: 'employee', storeIds: [1, 3] },
 ];
 
-export let stores: Store[] = [
+export const initialStores = [
     { id: 1, name: 'Main Street Store', employeeIds: [2, 4] },
     { id: 2, name: 'Downtown Branch', employeeIds: [3] },
     { id: 3, name: 'Uptown Boutique', employeeIds: [4] },
 ];
 
-export const products: Product[] = [
+export const initialProducts = [
     { id: 101, name: 'T-Shirt - Red', category: 'Apparel', barcode: '1234567890123', storeId: 1 },
     { id: 102, name: 'Jeans - Blue', category: 'Apparel', barcode: '1234567890124', storeId: 1 },
     { id: 103, name: 'Sneakers - White', category: 'Footwear', barcode: '1234567890125', storeId: 1 },
@@ -64,7 +65,7 @@ export const products: Product[] = [
     { id: 303, name: 'Smart Watch', category: 'Accessories', barcode: '1234567890326', storeId: 3 },
 ];
 
-export let inventoryChecks: InventoryCheck[] = [
+export const initialInventoryChecks = [
     {
         id: 'hist1',
         storeId: 1,
@@ -83,11 +84,6 @@ export let inventoryChecks: InventoryCheck[] = [
         date: new Date('2024-05-21T14:30:00Z'),
         status: 'Shortage',
         checkedItems: [201, 203],
-        missingItems: products.filter(p => [202, 204].includes(p.id))
+        missingItems: [202, 204]
     }
 ];
-
-// Function to add a new check, simulating a DB write
-export const addInventoryCheck = (newCheck: InventoryCheck) => {
-  inventoryChecks.unshift(newCheck);
-};

@@ -1,25 +1,32 @@
+
 "use client";
 
 import * as React from "react";
+import useSWR from 'swr';
 import { useAuth } from "@/contexts/auth-context";
-import { users } from "@/lib/data";
+import { User } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
+import { Skeleton } from "./ui/skeleton";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export function LoginForm() {
   const [selectedUserId, setSelectedUserId] = React.useState<string>("");
-  const { login, user } = useAuth();
+  const { login, user, isLoading: isAuthLoading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const { data: users, error, isLoading: usersLoading } = useSWR<User[]>('/api/users', fetcher);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedUserId) {
-      login(parseInt(selectedUserId, 10));
+      await login(selectedUserId);
     } else {
       toast({
         variant: "destructive",
@@ -35,6 +42,7 @@ export function LoginForm() {
     }
   }, [user, router]);
 
+  const isLoading = isAuthLoading || usersLoading;
 
   return (
     <form onSubmit={handleLogin}>
@@ -42,23 +50,29 @@ export function LoginForm() {
         <CardContent className="space-y-4 pt-6">
           <div className="space-y-2">
             <Label htmlFor="user-select">Select User</Label>
-            <Select onValueChange={setSelectedUserId} value={selectedUserId}>
-              <SelectTrigger id="user-select" className="w-full">
-                <SelectValue placeholder="Select a user to sign in..." />
-              </SelectTrigger>
-              <SelectContent>
-                {users.map((user) => (
-                  <SelectItem key={user.id} value={String(user.id)}>
-                    {user.name} ({user.role})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {isLoading ? (
+              <Skeleton className="h-10 w-full" />
+            ) : error ? (
+              <div className="text-destructive">Failed to load users. Please refresh.</div>
+            ) : (
+              <Select onValueChange={setSelectedUserId} value={selectedUserId}>
+                <SelectTrigger id="user-select" className="w-full">
+                  <SelectValue placeholder="Select a user to sign in..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {users?.map((user) => (
+                    <SelectItem key={user._id} value={String(user._id)}>
+                      {user.name} ({user.role})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </CardContent>
         <CardFooter>
-          <Button type="submit" className="w-full">
-            Sign In
+          <Button type="submit" className="w-full" disabled={isLoading || !selectedUserId}>
+            {isAuthLoading ? 'Signing In...' : 'Sign In'}
           </Button>
         </CardFooter>
       </Card>

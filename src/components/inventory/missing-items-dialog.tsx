@@ -1,3 +1,4 @@
+
 "use client"
 
 import {
@@ -38,7 +39,7 @@ export function MissingItemsDialog({ isOpen, onClose, items }: MissingItemsDialo
             </TableHeader>
             <TableBody>
               {items.map(item => (
-                <TableRow key={item.id}>
+                <TableRow key={item._id}>
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell>{item.category}</TableCell>
                 </TableRow>

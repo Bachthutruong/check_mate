@@ -1,8 +1,10 @@
+
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import useSWR from 'swr';
 import { useAuth } from "@/contexts/auth-context";
-import { stores, products, addInventoryCheck, Product } from "@/lib/data";
+import { Product, Store } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,6 +17,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useZxing } from "react-zxing";
 import Barcode from "react-barcode";
+import { Skeleton } from "../ui/skeleton";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 const categoryIcons: { [key: string]: React.ElementType } = {
     Apparel: Shirt,
@@ -29,10 +34,12 @@ export function InventoryCheckClient() {
   const { toast } = useToast();
   
   const [selectedStoreId, setSelectedStoreId] = useState<string>("");
-  const [storeProducts, setStoreProducts] = useState<Product[]>([]);
-  const [checkedProductIds, setCheckedProductIds] = useState<Set<number>>(new Set());
+  const [checkedProductIds, setCheckedProductIds] = useState<Set<string>>(new Set());
   const [isChecking, setIsChecking] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  
+  const { data: stores, isLoading: storesLoading } = useSWR<Store[]>('/api/stores', fetcher);
+  const { data: storeProducts, isLoading: productsLoading } = useSWR<Product[]>(selectedStoreId ? `/api/products?storeId=${selectedStoreId}` : null, fetcher);
 
   const { ref } = useZxing({
     onDecodeResult(result) {
@@ -52,15 +59,16 @@ export function InventoryCheckClient() {
   });
 
   const handleScanResult = (scannedCode: string) => {
+    if (!storeProducts) return;
     const product = storeProducts.find(p => p.barcode === scannedCode);
     if (product) {
-        if (checkedProductIds.has(product.id)) {
+        if (checkedProductIds.has(product._id!)) {
             toast({
                 title: "Already Checked",
                 description: `${product.name} is already on the list.`,
             });
         } else {
-            setCheckedProductIds(prev => new Set(prev).add(product.id));
+            setCheckedProductIds(prev => new Set(prev).add(product._id!));
             toast({
                 title: "Scan Successful",
                 description: `Checked: ${product.name}`,
@@ -76,13 +84,13 @@ export function InventoryCheckClient() {
   };
 
   const userStores = useMemo(() => {
-    if (!user) return [];
-    return stores.filter(store => user.storeIds.includes(store.id));
-  }, [user]);
+    if (!user || !stores) return [];
+    return stores.filter(store => user.storeIds.includes(store._id!));
+  }, [user, stores]);
 
   useEffect(() => {
     if(userStores.length === 1) {
-        handleStoreChange(String(userStores[0].id));
+        handleStoreChange(userStores[0]._id!);
     }
   }, [userStores]);
 
@@ -97,17 +105,14 @@ export function InventoryCheckClient() {
     }
     setSelectedStoreId(storeId);
     if (storeId) {
-        const prods = products.filter(p => p.storeId === parseInt(storeId));
-        setStoreProducts(prods);
         setCheckedProductIds(new Set());
         setIsChecking(true);
     } else {
-        setStoreProducts([]);
         setIsChecking(false);
     }
   };
 
-  const handleCheckProduct = (productId: number) => {
+  const handleCheckProduct = (productId: string) => {
     setCheckedProductIds(prev => {
       const newSet = new Set(prev);
       if (newSet.has(productId)) {
@@ -120,43 +125,51 @@ export function InventoryCheckClient() {
   };
   
   const categories = useMemo(() => {
+    if (!storeProducts) return [];
     const cats = new Set(storeProducts.map(p => p.category));
     return ["All", ...Array.from(cats)];
   }, [storeProducts]);
 
-  const completeCheck = () => {
-    if (!user || !selectedStoreId) return;
+  const completeCheck = async () => {
+    if (!user || !selectedStoreId || !storeProducts) return;
     
-    const allProductIds = new Set(storeProducts.map(p => p.id));
+    const allProductIds = new Set(storeProducts.map(p => p._id!));
     const missingProductIds = new Set([...allProductIds].filter(id => !checkedProductIds.has(id)));
-    const missingItems = storeProducts.filter(p => missingProductIds.has(p.id));
+    const missingItems = storeProducts.filter(p => missingProductIds.has(p._id!));
 
     const newCheck = {
-      id: `hist-${Date.now()}`,
-      storeId: parseInt(selectedStoreId),
-      storeName: stores.find(s => s.id === parseInt(selectedStoreId))?.name || 'Unknown Store',
+      storeId: selectedStoreId,
+      storeName: stores?.find(s => s._id === selectedStoreId)?.name || 'Unknown Store',
       employeeName: user.name,
-      date: new Date(),
-      status: missingItems.length > 0 ? 'Shortage' : 'Completed',
       checkedItems: Array.from(checkedProductIds),
-      missingItems: missingItems,
+      missingItems: missingItems.map(item => item._id!),
     };
 
-    addInventoryCheck(newCheck);
-    
-    toast({
-      title: "Inventory Check Completed",
-      description: `Status: ${newCheck.status}. The results have been saved to history.`,
-    });
+    try {
+        const res = await fetch('/api/inventory-checks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newCheck),
+        });
+        if (!res.ok) throw new Error('Failed to save inventory check');
 
-    // Reset state
-    setSelectedStoreId("");
-    setStoreProducts([]);
-    setCheckedProductIds(new Set());
-    setIsChecking(false);
+        const result = await res.json();
+        toast({
+            title: "Inventory Check Completed",
+            description: `Status: ${result.status}. The results have been saved to history.`,
+        });
+
+        // Reset state
+        setSelectedStoreId("");
+        setCheckedProductIds(new Set());
+        setIsChecking(false);
+
+    } catch (error: any) {
+        toast({ variant: "destructive", title: "Error", description: error.message });
+    }
   };
 
-  if (!user) return null;
+  if (!user || storesLoading) return <Skeleton className="w-full h-96" />;
 
   return (
     <>
@@ -181,19 +194,20 @@ export function InventoryCheckClient() {
       </CardHeader>
       <CardContent className="space-y-6">
         <div className="w-full max-w-sm">
-            <Select onValueChange={handleStoreChange} value={selectedStoreId} disabled={userStores.length <= 1}>
+            <Select onValueChange={handleStoreChange} value={selectedStoreId} disabled={userStores.length <= 1 && isChecking}>
                 <SelectTrigger id="store-select">
                     <SelectValue placeholder="Select a store..." />
                 </SelectTrigger>
                 <SelectContent>
                     {userStores.map(store => (
-                        <SelectItem key={store.id} value={String(store.id)}>{store.name}</SelectItem>
+                        <SelectItem key={store._id} value={String(store._id)}>{store.name}</SelectItem>
                     ))}
                 </SelectContent>
             </Select>
         </div>
 
-        {isChecking && storeProducts.length > 0 && (
+        {isChecking && productsLoading && <Skeleton className="w-full h-64" />}
+        {isChecking && !productsLoading && storeProducts && (
           <Tabs defaultValue="All" className="w-full">
             <div className="flex items-center">
               <TabsList>
@@ -225,10 +239,10 @@ export function InventoryCheckClient() {
                         </TableHeader>
                         <TableBody>
                           {storeProducts.filter(p => category === 'All' || p.category === category).map(product => {
-                            const isChecked = checkedProductIds.has(product.id);
+                            const isChecked = checkedProductIds.has(product._id!);
                             const CategoryIcon = categoryIcons[product.category] || categoryIcons.Default;
                             return (
-                                <TableRow key={product.id} className={isChecked ? "bg-accent/50" : ""}>
+                                <TableRow key={product._id} className={isChecked ? "bg-accent/50" : ""}>
                                     <TableCell>
                                         <Badge variant={isChecked ? "default" : "secondary"} className="bg-opacity-80">
                                           {isChecked ? <CheckCircle2 className="mr-1 h-3 w-3" /> : <XCircle className="mr-1 h-3 w-3" />}
@@ -248,7 +262,7 @@ export function InventoryCheckClient() {
                                         <Button 
                                           variant={isChecked ? "outline" : "default"} 
                                           size="sm"
-                                          onClick={() => handleCheckProduct(product.id)}
+                                          onClick={() => handleCheckProduct(product._id!)}
                                         >
                                           {isChecked ? 'Uncheck' : 'Check'}
                                         </Button>

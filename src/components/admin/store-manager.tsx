@@ -1,29 +1,36 @@
+
 "use client";
 
 import { useState } from "react";
-import { stores as mockStores, users, Store, User } from "@/lib/data";
+import useSWR from 'swr';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { MoreHorizontal, PlusCircle, UserPlus, Warehouse } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 import { Badge } from "../ui/badge";
+import { Skeleton } from "../ui/skeleton";
+import { Store, User } from "@/lib/data";
+
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export function StoreManager() {
-  const [stores, setStores] = useState<Store[]>(mockStores);
-  const [allUsers, setAllUsers] = useState<User[]>(users);
+  const { data: stores, error: storesError, isLoading: storesLoading, mutate: mutateStores } = useSWR<Store[]>('/api/stores', fetcher);
+  const { data: users, error: usersError, isLoading: usersLoading, mutate: mutateUsers } = useSWR<User[]>('/api/users', fetcher);
+
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
   const [currentStore, setCurrentStore] = useState<Partial<Store> | null>(null);
   const { toast } = useToast();
 
   const openDialog = (store: Partial<Store> | null = null) => {
-    setCurrentStore(store ? { ...store } : { name: '' });
+    setCurrentStore(store ? { ...store } : { name: '', employeeIds: [] });
     setIsDialogOpen(true);
   };
 
@@ -32,55 +39,85 @@ export function StoreManager() {
     setIsAssignDialogOpen(true);
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!currentStore || !currentStore.name) {
-        toast({ variant: "destructive", title: "Validation Error", description: "Store name is required." });
-        return;
+      toast({ variant: "destructive", title: "Validation Error", description: "Store name is required." });
+      return;
     }
 
-    if (currentStore.id) { // Editing existing store
-        setStores(stores.map(s => s.id === currentStore!.id ? { ...s, name: currentStore!.name! } : s));
-        toast({ title: "Store Updated", description: `"${currentStore.name}" has been updated.` });
-    } else { // Adding new store
-        const newStore: Store = { id: Date.now(), name: currentStore.name, employeeIds: [] };
-        setStores([...stores, newStore]);
-        toast({ title: "Store Added", description: `"${newStore.name}" has been created.` });
+    const url = currentStore._id ? `/api/stores/${currentStore._id}` : '/api/stores';
+    const method = currentStore._id ? 'PUT' : 'POST';
+
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: currentStore.name }),
+      });
+      if (!res.ok) throw new Error('Failed to save store');
+      
+      mutateStores();
+      toast({ title: `Store ${currentStore._id ? 'Updated' : 'Added'}`, description: `"${currentStore.name}" has been saved.` });
+      setIsDialogOpen(false);
+      setCurrentStore(null);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Save Error", description: error.message });
     }
-    setIsDialogOpen(false);
-    setCurrentStore(null);
+  };
+
+  const handleDelete = async (storeId: string) => {
+    try {
+      const res = await fetch(`/api/stores/${storeId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete store');
+      mutateStores();
+      mutateUsers(); // Users might have been unassigned
+      toast({ title: "Store Deleted", description: "The store has been successfully deleted." });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Delete Error", description: error.message });
+    }
   };
   
-  const handleAssignEmployee = (userId: string) => {
-    if(!currentStore || !currentStore.id) return;
+  const handleAssignEmployee = async (userId: string) => {
+    if (!currentStore?._id) return;
 
-    const employeeId = parseInt(userId);
-    
-    // Update store
-    const updatedStore = { ...currentStore, employeeIds: [...currentStore.employeeIds || [], employeeId] };
-    setStores(stores.map(s => s.id === updatedStore.id ? updatedStore as Store : s));
-    
-    // Update user
-    setAllUsers(allUsers.map(u => {
-        if(u.id === employeeId && !u.storeIds.includes(currentStore!.id!)) {
-            return { ...u, storeIds: [...u.storeIds, currentStore!.id!] };
-        }
-        return u;
-    }));
-
-    toast({ title: "Employee Assigned", description: `Employee has been added to "${currentStore.name}".`});
-    setIsAssignDialogOpen(false);
-    setCurrentStore(null);
+    try {
+      const res = await fetch(`/api/stores/${currentStore._id}/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      if (!res.ok) throw new Error('Failed to assign employee');
+      
+      mutateStores();
+      mutateUsers();
+      toast({ title: "Employee Assigned", description: `Employee has been added to "${currentStore.name}".`});
+      setIsAssignDialogOpen(false);
+      setCurrentStore(null);
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Assign Error", description: error.message });
+    }
   };
 
   const getStoreEmployees = (store: Store) => {
-    return allUsers.filter(u => store.employeeIds.includes(u.id));
+    return users?.filter(u => store.employeeIds?.includes(u._id!)) || [];
   };
   
   const getAssignableEmployees = (store: Store | Partial<Store> | null) => {
-      if(!store) return [];
-      return allUsers.filter(u => u.role === 'employee' && !u.storeIds.includes(store.id!));
+    if (!store || !users) return [];
+    const assignedEmployeeIds = store.employeeIds || [];
+    return users.filter(u => u.role === 'employee' && !assignedEmployeeIds.includes(u._id!));
   }
 
+  if (storesLoading || usersLoading) {
+    return (
+      <Card>
+        <CardHeader><Skeleton className="h-8 w-1/4" /></CardHeader>
+        <CardContent><Skeleton className="h-40 w-full" /></CardContent>
+      </Card>
+    );
+  }
+  
+  if (storesError || usersError) return <div>Failed to load data</div>;
 
   return (
     <>
@@ -107,12 +144,12 @@ export function StoreManager() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {stores.map(store => (
-                  <TableRow key={store.id}>
+                {stores?.map(store => (
+                  <TableRow key={store._id}>
                     <TableCell className="font-medium flex items-center gap-2"><Warehouse size={16}/> {store.name}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        {getStoreEmployees(store).map(emp => <Badge key={emp.id} variant="secondary">{emp.name}</Badge>)}
+                        {getStoreEmployees(store).map(emp => <Badge key={emp._id} variant="secondary">{emp.name}</Badge>)}
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
@@ -129,7 +166,21 @@ export function StoreManager() {
                             <UserPlus className="mr-2 h-4 w-4"/>
                             Assign Employee
                           </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive">Delete</DropdownMenuItem>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                <AlertDialogDescription>This will permanently delete the store "{store.name}" and unassign all its employees.</AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction onClick={() => handleDelete(store._id!)}>Delete</AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -141,11 +192,10 @@ export function StoreManager() {
         </CardContent>
       </Card>
       
-      {/* Add/Edit Store Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{currentStore?.id ? 'Edit Store' : 'Add New Store'}</DialogTitle>
+            <DialogTitle>{currentStore?._id ? 'Edit Store' : 'Add New Store'}</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
@@ -165,7 +215,6 @@ export function StoreManager() {
         </DialogContent>
       </Dialog>
       
-      {/* Assign Employee Dialog */}
       <Dialog open={isAssignDialogOpen} onOpenChange={setIsAssignDialogOpen}>
           <DialogContent>
             <DialogHeader>
@@ -178,7 +227,7 @@ export function StoreManager() {
                 </SelectTrigger>
                 <SelectContent>
                     {getAssignableEmployees(currentStore).map(emp => (
-                        <SelectItem key={emp.id} value={String(emp.id)}>{emp.name}</SelectItem>
+                        <SelectItem key={emp._id} value={emp._id!}>{emp.name}</SelectItem>
                     ))}
                 </SelectContent>
             </Select>

@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useAuth } from "@/contexts/auth-context"
@@ -32,7 +33,7 @@ export function UserNav() {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-8 w-8 rounded-full">
           <Avatar className="h-8 w-8">
-            <AvatarImage src={`https://i.pravatar.cc/150?u=${user.id}`} alt={user.name} />
+            <AvatarImage src={`https://i.pravatar.cc/150?u=${user._id}`} alt={user.name} />
             <AvatarFallback>{getInitials(user.name)}</AvatarFallback>
           </Avatar>
         </Button>
