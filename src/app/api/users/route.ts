@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
         if (userCount === 0) {
             await seedDatabase();
         }
-        // .select('-password') is the default due to schema, but being explicit is fine
+        // Explicitly exclude password
         const users = await UserModel.find({}).select('-password').lean(); 
         return NextResponse.json(JSON.parse(JSON.stringify(users)));
     } catch (error) {
@@ -32,14 +32,14 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ message: 'Name, username, password, and role are required' }, { status: 400 });
         }
 
-        const existingUser = await UserModel.findOne({ username });
+        const existingUser = await UserModel.findOne({ username }).lean();
         if (existingUser) {
             return NextResponse.json({ message: 'Username already exists' }, { status: 409 });
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        const newUser = new UserModel({
+        const newUser = await UserModel.create({
             name,
             username,
             password: hashedPassword,
@@ -47,8 +47,6 @@ export async function POST(req: NextRequest) {
             storeIds: storeIds || []
         });
         
-        await newUser.save();
-
         if (newUser.storeIds && newUser.storeIds.length > 0) {
             await StoreModel.updateMany(
                 { _id: { $in: newUser.storeIds } },

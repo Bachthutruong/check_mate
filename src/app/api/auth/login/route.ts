@@ -15,9 +15,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Username and password are required' }, { status: 400 });
     }
 
-    // Must use .select('+password') to get the password field
     // Use .lean() to get a plain JS object
-    const user = await UserModel.findOne({ username }).select('+password').lean();
+    // No need for .select('+password') since we removed `select: false` from the model
+    const user = await UserModel.findOne({ username }).lean();
 
     if (!user) {
       return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
