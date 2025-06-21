@@ -49,22 +49,24 @@ export async function POST(req: NextRequest) {
         
         console.log(`Creating user '${name}' with username '${username}' and temp password '${tempPassword}'`);
 
-        const newUser = await UserModel.create({
+        const newUser = new UserModel({
             name,
             username,
             password: hashedPassword,
             role,
             storeIds: storeIds || []
         });
+
+        const savedUser = await newUser.save();
         
-        if (newUser.storeIds && newUser.storeIds.length > 0) {
+        if (savedUser.storeIds && savedUser.storeIds.length > 0) {
             await StoreModel.updateMany(
-                { _id: { $in: newUser.storeIds } },
-                { $push: { employeeIds: newUser._id } }
+                { _id: { $in: savedUser.storeIds } },
+                { $push: { employeeIds: savedUser._id } }
             );
         }
         
-        const userObject = newUser.toObject();
+        const userObject = savedUser.toObject();
         // Do not return password, even the temporary one
         delete userObject.password;
 
