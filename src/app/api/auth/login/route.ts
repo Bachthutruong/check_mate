@@ -15,8 +15,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Username and password are required' }, { status: 400 });
     }
 
-    // Explicitly select the password field, which is hidden by default
-    const user = await UserModel.findOne({ username }).select('+password');
+    // Fetch user as a plain JavaScript object and explicitly select the password
+    const user = await UserModel.findOne({ username }).select('+password').lean();
 
     if (!user) {
       return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
@@ -38,9 +38,8 @@ export async function POST(req: NextRequest) {
       path: '/',
     });
     
-    // Use .toObject() to get a plain JS object before stripping the password
-    const userObject = user.toObject();
-    const { password: _, ...userResult } = userObject;
+    // The user object is already a plain object, but we still need to remove the password before sending.
+    const { password: _, ...userResult } = user;
 
     return NextResponse.json(userResult);
   } catch (error) {
