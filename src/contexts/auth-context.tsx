@@ -35,20 +35,32 @@ function AuthProviderContent({ children }: { children: ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(credentials),
       });
+
       if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.message || "Login failed");
+        toast({
+          variant: "destructive",
+          title: "Login Failed",
+          description: errorData.message || "An unknown error occurred.",
+        });
+        return;
       }
+
       const loggedInUser = await res.json();
       await mutate(loggedInUser, false); // Update SWR cache without re-fetching
+      
       if (loggedInUser.role === 'admin') {
         router.push('/dashboard/history');
       } else {
         router.push('/dashboard/inventory');
       }
     } catch (error: any) {
-      console.error("Login failed:", error);
-      toast({ variant: "destructive", title: "Login Failed", description: error.message });
+      console.error("Login error:", error);
+      toast({
+        variant: "destructive",
+        title: "Login Failed",
+        description: "A network error occurred. Please try again.",
+      });
     }
   };
 
