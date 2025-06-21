@@ -5,6 +5,7 @@ import StoreModel from '@/models/Store';
 import ProductModel from '@/models/Product';
 import InventoryCheckModel from '@/models/InventoryCheck';
 import { initialUsers, initialStores, initialProducts, initialInventoryChecks } from './data';
+import bcrypt from 'bcryptjs';
 
 export const seedDatabase = async () => {
     console.log('Seeding database...');
@@ -24,10 +25,15 @@ export const seedDatabase = async () => {
         });
         console.log('Seeded stores.');
 
-        const usersToCreate = initialUsers.map(user => ({
-            name: user.name,
-            role: user.role,
-            storeIds: user.storeIds.map(id => tempIdToMongoId[`store_${id}`])
+        const usersToCreate = await Promise.all(initialUsers.map(async (user) => {
+            const hashedPassword = await bcrypt.hash(user.password, 10);
+            return {
+                name: user.name,
+                username: user.username,
+                password: hashedPassword,
+                role: user.role,
+                storeIds: user.storeIds.map(id => tempIdToMongoId[`store_${id}`])
+            };
         }));
         const createdUsers = await UserModel.insertMany(usersToCreate);
         createdUsers.forEach((user, index) => {

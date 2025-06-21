@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 
   try {
     await connectMongo();
-    const user = await UserModel.findById(decoded.id).lean();
+    const user = await UserModel.findById(decoded.id).select('-password').lean();
 
     if (!user) {
       return NextResponse.json(null);

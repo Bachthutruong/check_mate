@@ -1,3 +1,4 @@
+
 import { LoginForm } from "@/components/login-form";
 import { CheckSquare } from "lucide-react";
 import Link from "next/link";
@@ -11,11 +12,11 @@ export default function LoginPage() {
             <CheckSquare className="h-8 w-8 text-primary-foreground" />
           </div>
           <h1 className="text-3xl font-bold text-foreground">CheckMate</h1>
-          <p className="text-muted-foreground">Welcome! Select a user to sign in.</p>
+          <p className="text-muted-foreground">Sign in to your account.</p>
         </div>
         <LoginForm />
         <div className="mt-4 text-center text-sm">
-          Need an admin account?{" "}
+          Need an account?{" "}
           <Link href="/register" className="underline">
             Register here
           </Link>

@@ -9,7 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 
 interface AuthContextType {
   user: User | null;
-  login: (userId: string) => Promise<void>;
+  login: (credentials: {username: string, password: string}) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
   mutateUser: () => void;
@@ -28,12 +28,12 @@ function AuthProviderContent({ children }: { children: ReactNode }) {
   const { data: user, error, isLoading, mutate } = useSWR<User | null>('/api/auth/user', fetcher);
   const { toast } = useToast();
 
-  const login = async (userId: string) => {
+  const login = async (credentials: {username: string, password: string}) => {
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify(credentials),
       });
       if (!res.ok) {
         const errorData = await res.json();

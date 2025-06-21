@@ -11,9 +11,11 @@ export interface IProduct extends Document {
 const ProductSchema: Schema = new Schema({
   name: { type: String, required: true },
   category: { type: String, required: true },
-  barcode: { type: String, required: true, unique: true },
+  barcode: { type: String, required: true },
   storeId: { type: Schema.Types.ObjectId, ref: 'Store', required: true },
 });
+
+ProductSchema.index({ barcode: 1, storeId: 1 }, { unique: true });
 
 const ProductModel = models.Product || mongoose.model<IProduct>('Product', ProductSchema);
 export default ProductModel;

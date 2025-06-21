@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useAuth } from "@/contexts/auth-context";
@@ -39,8 +40,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <SidebarProvider>
-      <div className="bg-background font-body antialiased">
+    <SidebarProvider className="bg-background font-body antialiased">
         <Sidebar>
           <SidebarHeader>
             <div className="flex items-center gap-3">
@@ -65,11 +65,12 @@ export default function DashboardLayout({
                 <UserNav />
               </div>
           </header>
-          <main className="flex flex-1 flex-col gap-4 p-4 sm:px-6 sm:py-6 md:gap-8">
-              {children}
-          </main>
+          <div className="flex-1 overflow-y-auto p-4 sm:px-6 sm:py-6">
+              <div className="flex flex-col gap-4 md:gap-8">
+                {children}
+              </div>
+          </div>
         </SidebarInset>
-      </div>
     </SidebarProvider>
   );
 }

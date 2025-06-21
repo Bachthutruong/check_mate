@@ -4,23 +4,30 @@ import connectMongo from '@/lib/mongodb';
 import UserModel from '@/models/User';
 import { signJwt } from '@/lib/auth';
 import { cookies } from 'next/headers';
+import bcrypt from 'bcryptjs';
 
 export async function POST(req: NextRequest) {
   try {
     await connectMongo();
-    const { userId } = await req.json();
+    const { username, password } = await req.json();
 
-    if (!userId) {
-      return NextResponse.json({ message: 'User ID is required' }, { status: 400 });
+    if (!username || !password) {
+      return NextResponse.json({ message: 'Username and password are required' }, { status: 400 });
     }
 
-    const user = await UserModel.findById(userId);
+    const user = await UserModel.findOne({ username });
 
     if (!user) {
-      return NextResponse.json({ message: 'User not found' }, { status: 404 });
+      return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
     }
 
-    const token = signJwt({ id: user._id, role: user.role });
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+        return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
+    }
+
+    const token = signJwt({ id: user._id, role: user.role, name: user.name });
 
     cookies().set('token', token, {
       httpOnly: true,
@@ -31,7 +38,7 @@ export async function POST(req: NextRequest) {
     });
     
     // Return user data without sensitive info
-    const { ...userResult } = user.toObject();
+    const { password: _, ...userResult } = user.toObject();
 
     return NextResponse.json(userResult);
   } catch (error) {

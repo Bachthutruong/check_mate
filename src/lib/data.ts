@@ -4,6 +4,8 @@ import { Types } from 'mongoose';
 export type User = {
   _id?: string;
   name: string;
+  username: string;
+  password?: string;
   role: 'admin' | 'employee';
   storeIds: string[];
 };
@@ -35,10 +37,10 @@ export type InventoryCheck = {
 
 // Raw data for seeding the database
 export const initialUsers = [
-  { id: 1, name: 'Admin User', role: 'admin', storeIds: [1, 2, 3] },
-  { id: 2, name: 'John Doe', role: 'employee', storeIds: [1] },
-  { id: 3, name: 'Jane Smith', role: 'employee', storeIds: [2] },
-  { id: 4, name: 'Emily White', role: 'employee', storeIds: [1, 3] },
+  { id: 1, name: 'Admin User', username: 'admin', password: 'password', role: 'admin', storeIds: [1, 2, 3] },
+  { id: 2, name: 'John Doe', username: 'john', password: 'password', role: 'employee', storeIds: [1] },
+  { id: 3, name: 'Jane Smith', username: 'jane', password: 'password', role: 'employee', storeIds: [2] },
+  { id: 4, name: 'Emily White', username: 'emily', password: 'password', role: 'employee', storeIds: [1, 3] },
 ];
 
 export const initialStores = [

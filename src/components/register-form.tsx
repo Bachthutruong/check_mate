@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -9,18 +10,20 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/hooks/use-toast";
 
 export function RegistrationForm() {
-  const [name, setName] = React.useState<string>("");
+  const [name, setName] = React.useState("");
+  const [username, setUsername] = React.useState("");
+  const [password, setPassword] = React.useState("");
   const [isLoading, setIsLoading] = React.useState<boolean>(false);
   const router = useRouter();
   const { toast } = useToast();
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name) {
+    if (!name || !username || !password) {
       toast({
         variant: "destructive",
         title: "Registration Failed",
-        description: "Please enter your name.",
+        description: "Please fill in all fields.",
       });
       return;
     }
@@ -31,7 +34,7 @@ export function RegistrationForm() {
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, role: 'admin', storeIds: [] }),
+        body: JSON.stringify({ name, username, password, role: 'admin', storeIds: [] }),
       });
 
       if (!res.ok) {
@@ -67,6 +70,27 @@ export function RegistrationForm() {
                 placeholder="Enter your full name" 
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                disabled={isLoading}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="username">Username</Label>
+            <Input 
+                id="username" 
+                placeholder="Choose a username" 
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                disabled={isLoading}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input 
+                id="password" 
+                type="password"
+                placeholder="Create a password" 
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
             />
           </div>
