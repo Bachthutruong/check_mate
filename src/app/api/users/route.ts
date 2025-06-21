@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     await connectMongo();
     try {
         const body = await req.json();
-        const { name, username, password, role, storeIds } = body;
+        const { name, username, password, role } = body;
 
         if (!name || !username || !password || !role) {
             return NextResponse.json({ message: 'Name, username, password, and role are required' }, { status: 400 });
@@ -40,22 +40,18 @@ export async function POST(req: NextRequest) {
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const newUser = new UserModel({
-            name,
-            username,
+            ...body,
             password: hashedPassword,
-            role,
-            storeIds: storeIds || [],
         });
         await newUser.save();
 
-        if (storeIds && storeIds.length > 0) {
+        if (body.storeIds && body.storeIds.length > 0) {
             await StoreModel.updateMany(
-                { _id: { $in: storeIds } },
+                { _id: { $in: body.storeIds } },
                 { $push: { employeeIds: newUser._id } }
             );
         }
         
-        // Convert to object to remove password before sending response
         const userObject = newUser.toObject();
         delete userObject.password;
 
