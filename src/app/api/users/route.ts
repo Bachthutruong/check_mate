@@ -35,7 +35,8 @@ async function handler(req: NextRequest) {
     if (req.method === 'POST') {
         try {
             const { name, username, password, role, storeIds } = await req.json();
-            if (!name || !role || !username || !password) {
+            
+            if (!name || !username || !password || !role) {
                 return NextResponse.json({ message: 'Name, username, password and role are required' }, { status: 400 });
             }
 
@@ -48,8 +49,8 @@ async function handler(req: NextRequest) {
 
             const newUser = new UserModel({ 
                 name, 
-                username,
-                password: hashedPassword,
+                username, // Ensure username is saved
+                password: hashedPassword, // Ensure password is saved
                 role, 
                 storeIds: storeIds || [] 
             });
@@ -63,6 +64,7 @@ async function handler(req: NextRequest) {
                 );
             }
             
+            // Exclude password from the returned object
             const { password: _, ...sanitizedUser } = newUser.toObject();
             return NextResponse.json(JSON.parse(JSON.stringify(sanitizedUser)), { status: 201 });
         } catch (error) {

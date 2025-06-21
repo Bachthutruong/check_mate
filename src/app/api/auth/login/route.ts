@@ -15,13 +15,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Username and password are required' }, { status: 400 });
     }
 
-    // Fetch user as a plain JavaScript object and explicitly select the password
+    // Fetch user with the password field explicitly included
     const user = await UserModel.findOne({ username }).select('+password').lean();
 
     if (!user) {
       return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
     }
 
+    // Now, user.password is guaranteed to be the hash from the DB
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
