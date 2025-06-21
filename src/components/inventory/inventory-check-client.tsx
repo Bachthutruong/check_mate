@@ -8,10 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, ScanLine, CheckCircle2, XCircle, Bot, Shirt, Footprints, Laptop, Gem } from "lucide-react";
+import { Upload, Camera, CheckCircle2, XCircle, Bot, Shirt, Footprints, Laptop, Gem } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { useZxing } from "react-zxing";
+import Barcode from "react-barcode";
 
 const categoryIcons: { [key: string]: React.ElementType } = {
     Apparel: Shirt,
@@ -29,6 +32,48 @@ export function InventoryCheckClient() {
   const [storeProducts, setStoreProducts] = useState<Product[]>([]);
   const [checkedProductIds, setCheckedProductIds] = useState<Set<number>>(new Set());
   const [isChecking, setIsChecking] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+
+  const { ref } = useZxing({
+    onDecodeResult(result) {
+      handleScanResult(result.getText());
+    },
+    onError(error) {
+        if (error.name !== 'NotFoundException') {
+            console.error(error);
+            toast({
+                variant: "destructive",
+                title: "Scanner Error",
+                description: "Could not start the scanner. Please ensure camera permissions are granted.",
+            });
+            setIsScannerOpen(false);
+        }
+    }
+  });
+
+  const handleScanResult = (scannedCode: string) => {
+    const product = storeProducts.find(p => p.barcode === scannedCode);
+    if (product) {
+        if (checkedProductIds.has(product.id)) {
+            toast({
+                title: "Already Checked",
+                description: `${product.name} is already on the list.`,
+            });
+        } else {
+            setCheckedProductIds(prev => new Set(prev).add(product.id));
+            toast({
+                title: "Scan Successful",
+                description: `Checked: ${product.name}`,
+            });
+        }
+    } else {
+        toast({
+            variant: "destructive",
+            title: "Product Not Found",
+            description: `No product in this store has barcode: ${scannedCode}`,
+        });
+    }
+  };
 
   const userStores = useMemo(() => {
     if (!user) return [];
@@ -73,24 +118,6 @@ export function InventoryCheckClient() {
       return newSet;
     });
   };
-
-  const simulateBarcodeScan = () => {
-    const uncheckedProducts = storeProducts.filter(p => !checkedProductIds.has(p.id));
-    if (uncheckedProducts.length > 0) {
-      const randomProduct = uncheckedProducts[Math.floor(Math.random() * uncheckedProducts.length)];
-      handleCheckProduct(randomProduct.id);
-      toast({
-        title: "Scan Successful",
-        description: `Checked: ${randomProduct.name}`,
-      });
-    } else {
-      toast({
-        variant: "destructive",
-        title: "Scan Failed",
-        description: "All products have been checked.",
-      });
-    }
-  };
   
   const categories = useMemo(() => {
     const cats = new Set(storeProducts.map(p => p.category));
@@ -132,6 +159,7 @@ export function InventoryCheckClient() {
   if (!user) return null;
 
   return (
+    <>
     <Card>
       <CardHeader>
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -144,9 +172,9 @@ export function InventoryCheckClient() {
                     <Upload className="mr-2" />
                     Import XLSX
                 </Button>
-                <Button onClick={simulateBarcodeScan} disabled={!isChecking}>
-                    <ScanLine className="mr-2" />
-                    Simulate Scan
+                <Button onClick={() => setIsScannerOpen(true)} disabled={!isChecking}>
+                    <Camera className="mr-2" />
+                    Scan with Camera
                 </Button>
             </div>
         </div>
@@ -213,7 +241,9 @@ export function InventoryCheckClient() {
                                             <div className="font-medium">{product.name}</div>
                                         </div>
                                     </TableCell>
-                                    <TableCell className="hidden md:table-cell font-mono text-sm">{product.barcode}</TableCell>
+                                    <TableCell className="hidden md:table-cell">
+                                        <Barcode value={product.barcode} height={30} displayValue={false} margin={0} />
+                                    </TableCell>
                                     <TableCell className="text-right">
                                         <Button 
                                           variant={isChecked ? "outline" : "default"} 
@@ -255,5 +285,20 @@ export function InventoryCheckClient() {
         </CardFooter>
       )}
     </Card>
+    
+    <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
+        <DialogContent>
+            <DialogHeader>
+                <DialogTitle>Scan Barcode</DialogTitle>
+                <DialogDescription>
+                    Point your camera at a product's barcode to check it in.
+                </DialogDescription>
+            </DialogHeader>
+            <div className="overflow-hidden rounded-md">
+                <video ref={ref} className="w-full" />
+            </div>
+        </DialogContent>
+    </Dialog>
+    </>
   );
 }
