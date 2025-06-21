@@ -29,7 +29,10 @@ export async function POST(req: NextRequest) {
     await connectMongo();
     try {
         const body = await req.json();
-        const { name, role, storeIds } = body;
+        
+        const name = body.name;
+        const role = body.role;
+        const storeIds = body.storeIds;
 
         if (!name || !role) {
             return NextResponse.json({ message: 'Name and role are required' }, { status: 400 });
@@ -51,10 +54,10 @@ export async function POST(req: NextRequest) {
 
         // Use UserModel.create for a more direct and reliable save operation.
         const newUser = await UserModel.create({
-            name,
-            username,
+            name: name,
+            username: username,
             password: hashedPassword,
-            role,
+            role: role,
             storeIds: storeIds || []
         });
 
