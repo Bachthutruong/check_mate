@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Username and password are required' }, { status: 400 });
     }
 
-    const user = await UserModel.findOne({ username }).select('+password');
+    const user = await UserModel.findOne({ username }).select('+password').lean();
 
     if (!user) {
       return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     });
     
     // Return user data without sensitive info
-    const { password: _, ...userResult } = user.toObject();
+    const { password: _, ...userResult } = user;
 
     return NextResponse.json(userResult);
   } catch (error) {
