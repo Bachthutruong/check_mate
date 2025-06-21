@@ -15,8 +15,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Username and password are required' }, { status: 400 });
     }
 
-    // Find user by username. Password will be included by default now.
-    const user = await UserModel.findOne({ username });
+    // Explicitly select the password field, which is hidden by default
+    const user = await UserModel.findOne({ username }).select('+password');
 
     if (!user) {
       return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
