@@ -15,14 +15,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Username and password are required' }, { status: 400 });
     }
 
-    // Fetch user with the password field explicitly included
+    // Must use .select('+password') to get the password field
+    // Use .lean() to get a plain JS object
     const user = await UserModel.findOne({ username }).select('+password').lean();
 
     if (!user) {
       return NextResponse.json({ message: 'Invalid credentials' }, { status: 401 });
     }
-
-    // Now, user.password is guaranteed to be the hash from the DB
+    
+    // user.password is now guaranteed to be the hash from the DB if user is found
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
       path: '/',
     });
     
-    // The user object is already a plain object, but we still need to remove the password before sending.
+    // Remove password before sending the response
     const { password: _, ...userResult } = user;
 
     return NextResponse.json(userResult);
