@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     await connectMongo();
     try {
         const body = await req.json();
-        const { name, username, password, role } = body;
+        const { name, username, password, role, storeIds } = body;
 
         if (!name || !username || !password || !role) {
             return NextResponse.json({ message: 'Name, username, password, and role are required' }, { status: 400 });
@@ -40,14 +40,18 @@ export async function POST(req: NextRequest) {
         const hashedPassword = await bcrypt.hash(password, 10);
 
         const newUser = new UserModel({
-            ...body,
+            name,
+            username,
             password: hashedPassword,
+            role,
+            storeIds: storeIds || []
         });
+        
         await newUser.save();
 
-        if (body.storeIds && body.storeIds.length > 0) {
+        if (newUser.storeIds && newUser.storeIds.length > 0) {
             await StoreModel.updateMany(
-                { _id: { $in: body.storeIds } },
+                { _id: { $in: newUser.storeIds } },
                 { $push: { employeeIds: newUser._id } }
             );
         }
@@ -56,8 +60,11 @@ export async function POST(req: NextRequest) {
         delete userObject.password;
 
         return NextResponse.json(JSON.parse(JSON.stringify(userObject)), { status: 201 });
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error creating user:", error);
+        if (error.name === 'ValidationError') {
+             return NextResponse.json({ message: 'Validation error', errors: error.errors }, { status: 400 });
+        }
         return NextResponse.json({ message: 'Error creating user' }, { status: 500 });
     }
 }
