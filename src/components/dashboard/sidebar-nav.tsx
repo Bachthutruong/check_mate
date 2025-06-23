@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { useAuth, User } from "@/contexts/auth-context"
+import { useAuth } from "@/contexts/auth-context"
 import {
   SidebarMenu,
   SidebarMenuItem,
@@ -15,6 +15,7 @@ import {
   Users,
   Warehouse,
 } from "lucide-react"
+import { User } from "@/lib/data"
 
 type NavItem = {
   href: string
@@ -42,7 +43,7 @@ export function SidebarNav() {
     <SidebarMenu>
       {accessibleNavItems.map(item => (
         <SidebarMenuItem key={item.href}>
-          <Link href={item.href} legacyBehavior passHref>
+          <Link href={item.href}>
             <SidebarMenuButton
               isActive={pathname.startsWith(item.href)}
               tooltip={item.label}

@@ -1,12 +1,12 @@
-
 "use client";
 
 import { useState } from "react";
 import useSWR from 'swr';
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { MoreHorizontal, PlusCircle, UserPlus, Warehouse } from "lucide-react";
+import { MoreHorizontal, Pencil, PlusCircle, UserPlus, Warehouse } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -161,7 +161,12 @@ export function StoreManager() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openDialog(store)}>Edit</DropdownMenuItem>
+                          <DropdownMenuItem asChild>
+                            <Link href={`/dashboard/admin/stores/${store._id}`}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              Manage
+                            </Link>
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => openAssignDialog(store)}>
                             <UserPlus className="mr-2 h-4 w-4"/>
                             Assign Employee

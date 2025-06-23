@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -56,7 +55,23 @@ export function EmployeeManager() {
         throw new Error(errorData.message || 'Failed to save user');
       }
       
-      mutateUsers();
+      const savedUser = await res.json();
+
+      mutateUsers(async (currentUsers: User[] | undefined) => {
+        const optimisticUsers = currentUsers ? [...currentUsers] : [];
+        if (currentUser._id) {
+          // Update existing user
+          const index = optimisticUsers.findIndex(u => u._id === savedUser._id);
+          if (index !== -1) {
+            optimisticUsers[index] = savedUser;
+          }
+        } else {
+          // Add new user
+          optimisticUsers.push(savedUser);
+        }
+        return optimisticUsers;
+      }, false); // Set revalidate to false
+
       toast({ title: `User ${currentUser._id ? 'Updated' : 'Added'}`, description: `"${currentUser.name}" has been saved.` });
       setIsDialogOpen(false);
       setCurrentUser(null);

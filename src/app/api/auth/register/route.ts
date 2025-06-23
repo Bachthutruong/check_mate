@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import connectMongo from '@/lib/mongodb';
 import UserModel from '@/models/User';
@@ -8,7 +7,7 @@ export async function POST(req: NextRequest) {
     await connectMongo();
 
     try {
-        const { name, username, password } = await req.json();
+        const { name, username, password, role } = await req.json();
 
         if (!name || !username || !password) {
             return NextResponse.json({ message: 'Name, username, and password are required' }, { status: 400 });
@@ -26,7 +25,7 @@ export async function POST(req: NextRequest) {
             name,
             username,
             password: hashedPassword,
-            role: 'admin',
+            role: role || 'employee',
             storeIds: []
         });
         

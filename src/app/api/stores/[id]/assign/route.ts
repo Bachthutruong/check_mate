@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import connectMongo from '@/lib/mongodb';
 import StoreModel from '@/models/Store';
@@ -6,7 +5,7 @@ import UserModel from '@/models/User';
 import mongoose from 'mongoose';
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const storeId = params.id;
+  const { id: storeId } = params;
   const { userId } = await req.json();
 
   if (!mongoose.Types.ObjectId.isValid(storeId) || !mongoose.Types.ObjectId.isValid(userId)) {
