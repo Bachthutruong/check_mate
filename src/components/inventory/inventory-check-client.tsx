@@ -1,7 +1,6 @@
-
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import useSWR from 'swr';
 import { useAuth } from "@/contexts/auth-context";
 import { Product, Store } from "@/lib/data";
@@ -18,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { useZxing } from "react-zxing";
 import Barcode from "react-barcode";
 import { Skeleton } from "../ui/skeleton";
+import * as XLSX from 'xlsx';
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
@@ -37,6 +37,7 @@ export function InventoryCheckClient() {
   const [checkedProductIds, setCheckedProductIds] = useState<Set<string>>(new Set());
   const [isChecking, setIsChecking] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const { data: stores, isLoading: storesLoading } = useSWR<Store[]>('/api/stores', fetcher);
   const { data: storeProducts, isLoading: productsLoading } = useSWR<Product[]>(selectedStoreId ? `/api/products?storeId=${selectedStoreId}` : null, fetcher);
@@ -45,7 +46,7 @@ export function InventoryCheckClient() {
     onDecodeResult(result) {
       handleScanResult(result.getText());
     },
-    onError(error) {
+    onError(error: any) {
         if (error.name !== 'NotFoundException') {
             console.error(error);
             toast({
@@ -57,6 +58,8 @@ export function InventoryCheckClient() {
         }
     }
   });
+
+  const scannerRef: any = ref;
 
   const handleScanResult = (scannedCode: string) => {
     if (!storeProducts) return;
@@ -83,9 +86,70 @@ export function InventoryCheckClient() {
     }
   };
 
+  const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !storeProducts) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const data = new Uint8Array(e.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const json: any[] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+            
+            // Assuming barcodes are in the first column
+            const barcodes = json.map(row => row[0]).filter(Boolean);
+            
+            const productMap = new Map(storeProducts.map(p => [p.barcode, p._id]));
+            const foundProductIds = new Set<string>();
+
+            for (const barcode of barcodes) {
+                const productId = productMap.get(String(barcode));
+                if (productId) {
+                    foundProductIds.add(productId);
+                }
+            }
+
+            if (foundProductIds.size === 0) {
+                 toast({
+                    variant: "destructive",
+                    title: "No Products Found",
+                    description: "No matching products were found in the store for the barcodes in the file.",
+                });
+                return;
+            }
+
+            setCheckedProductIds(prev => new Set([...prev, ...foundProductIds]));
+
+            toast({
+                title: "Import Successful",
+                description: `${foundProductIds.size} products were found and have been checked.`,
+            });
+        } catch (error) {
+            console.error("Error processing XLSX file:", error);
+            toast({
+                variant: "destructive",
+                title: "Import Error",
+                description: "Could not read the file. Please ensure it is a valid XLSX file with barcodes in the first column.",
+            });
+        } finally {
+            // Reset file input
+            if(fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
+        }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
   const userStores = useMemo(() => {
     if (!user || !stores) return [];
-    return stores.filter(store => user.storeIds.includes(store._id!));
+    if (user.role === 'admin') {
+      return stores;
+    }
+    return stores.filter(store => user.storeIds?.includes(store._id!));
   }, [user, stores]);
 
   useEffect(() => {
@@ -181,7 +245,14 @@ export function InventoryCheckClient() {
                 <p className="text-muted-foreground">Select a store to begin checking inventory.</p>
             </div>
             <div className="flex gap-2">
-                <Button variant="outline" disabled={!isChecking}>
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileImport}
+                    accept=".xlsx, .xls"
+                    className="hidden"
+                />
+                <Button variant="outline" disabled={!isChecking} onClick={() => fileInputRef.current?.click()}>
                     <Upload className="mr-2" />
                     Import XLSX
                 </Button>
@@ -305,12 +376,11 @@ export function InventoryCheckClient() {
             <DialogHeader>
                 <DialogTitle>Scan Barcode</DialogTitle>
                 <DialogDescription>
-                    Point your camera at a product's barcode to check it in.
+                    Point your camera at a product's barcode.
                 </DialogDescription>
             </DialogHeader>
-            <div className="overflow-hidden rounded-md">
-                <video ref={ref} className="w-full" />
-            </div>
+            <video ref={scannerRef} className="w-full rounded-lg" />
+            <Button variant="outline" onClick={() => setIsScannerOpen(false)}>Close Scanner</Button>
         </DialogContent>
     </Dialog>
     </>
