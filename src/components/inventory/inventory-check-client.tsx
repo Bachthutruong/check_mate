@@ -45,6 +45,7 @@ export function InventoryCheckClient() {
   const [isChecking, setIsChecking] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scannerError, setScannerError] = useState<string>("");
+  const [isInitializingCamera, setIsInitializingCamera] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const { data: stores, isLoading: storesLoading } = useSWR<Store[]>('/api/stores', fetcher);
@@ -52,12 +53,14 @@ export function InventoryCheckClient() {
 
   const { ref } = useZxing({
     onDecodeResult(result) {
-      handleScanResult(result.getText());
+      if (result && typeof result.getText === 'function') {
+        handleScanResult(result.getText());
+      }
     },
     onError(error: any) {
         console.error("Scanner error:", error);
-        setScannerError(error.message || "掃描器發生錯誤");
-        if (error.name !== 'NotFoundException') {
+        setScannerError(error?.message || "掃描器發生錯誤");
+        if (error?.name !== 'NotFoundException') {
             toast({
                 variant: "destructive",
                 title: "掃描器錯誤",
@@ -67,9 +70,12 @@ export function InventoryCheckClient() {
     },
     constraints: {
       video: {
-        facingMode: 'environment' // Use back camera on mobile devices
+        facingMode: 'environment',
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
       }
-    }
+    },
+    timeBetweenDecodingAttempts: 300
   });
 
   const scannerRef: any = ref;
@@ -100,14 +106,52 @@ export function InventoryCheckClient() {
     }
   };
 
-  const handleOpenScanner = () => {
+  const requestCameraPermission = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        } 
+      });
+      // Stop the stream immediately as we just needed to request permission
+      stream.getTracks().forEach(track => track.stop());
+      return true;
+    } catch (error) {
+      console.error("Camera permission error:", error);
+      return false;
+    }
+  };
+
+  const handleOpenScanner = async () => {
     setScannerError("");
+    setIsInitializingCamera(true);
+    
+    // Check if media devices are supported
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setScannerError("此瀏覽器不支援相機功能。請使用支援的瀏覽器 (Chrome, Firefox, Safari)。");
+      setIsInitializingCamera(false);
+      return;
+    }
+    
+    // Check if camera permission is available
+    const hasPermission = await requestCameraPermission();
+    
+    if (!hasPermission) {
+      setScannerError("無法存取相機。請檢查瀏覽器權限設定並重新載入頁面。");
+      setIsInitializingCamera(false);
+      return;
+    }
+    
     setIsScannerOpen(true);
+    setIsInitializingCamera(false);
   };
 
   const handleCloseScanner = () => {
     setIsScannerOpen(false);
     setScannerError("");
+    setIsInitializingCamera(false);
   };
 
   // Helper function to clean and parse numbers from Excel
@@ -331,6 +375,34 @@ export function InventoryCheckClient() {
     }
   }, [storeProducts]);
 
+  // Monitor camera stream status
+  useEffect(() => {
+    const videoElement = scannerRef?.current;
+    if (videoElement && isScannerOpen) {
+      const handleLoadedMetadata = () => {
+        console.log('Camera stream loaded successfully');
+        setScannerError("");
+        toast({
+          title: "相機已啟動",
+          description: "現在可以開始掃描條碼了",
+        });
+      };
+      
+      const handleError = (e: any) => {
+        console.error('Video element error:', e);
+        setScannerError("相機載入失敗，請重試");
+      };
+
+      videoElement.addEventListener('loadedmetadata', handleLoadedMetadata);
+      videoElement.addEventListener('error', handleError);
+
+      return () => {
+        videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        videoElement.removeEventListener('error', handleError);
+      };
+    }
+  }, [scannerRef, isScannerOpen]);
+
   const handleStoreChange = (storeId: string) => {
     if (isChecking) {
         toast({
@@ -429,9 +501,9 @@ export function InventoryCheckClient() {
                     <Upload className="mr-2" />
                     匯入 Excel
                 </Button>
-                <Button onClick={handleOpenScanner} disabled={!isChecking}>
+                <Button onClick={handleOpenScanner} disabled={!isChecking || isInitializingCamera}>
                     <Camera className="mr-2" />
-                    掃描條碼
+                    {isInitializingCamera ? "啟動相機中..." : "掃描條碼"}
                 </Button>
             </div>
         </div>
@@ -623,6 +695,7 @@ export function InventoryCheckClient() {
                             <br />• 已授予相機權限
                             <br />• 相機沒有被其他應用程式使用
                             <br />• 設備有可用的相機
+                            <br />• 使用支援的瀏覽器 (Chrome, Firefox, Safari)
                         </p>
                     </div>
                 ) : (
@@ -630,8 +703,14 @@ export function InventoryCheckClient() {
                         <video 
                             ref={scannerRef} 
                             className="w-full rounded-lg border"
-                            style={{ minHeight: '300px' }}
+                            style={{ 
+                                minHeight: '300px',
+                                maxHeight: '400px',
+                                width: '100%',
+                                objectFit: 'cover'
+                            }}
                             playsInline
+                            autoPlay
                             muted
                         />
                         <div className="absolute inset-0 border-2 border-dashed border-blue-400 rounded-lg pointer-events-none">
@@ -639,6 +718,14 @@ export function InventoryCheckClient() {
                                 <div className="text-xs text-blue-600 text-center mt-2">將條碼放在此處</div>
                             </div>
                         </div>
+                        {!scannerRef?.current?.srcObject && (
+                            <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
+                                <div className="text-center">
+                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                                    <p className="text-sm text-gray-600">正在啟動相機...</p>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
                 <Button variant="outline" onClick={handleCloseScanner}>
