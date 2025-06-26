@@ -1,15 +1,15 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import useSWR from 'swr';
 import { useAuth } from "@/contexts/auth-context";
 import { Product, Store } from "@/lib/data";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Camera, CheckCircle2, XCircle, Bot, Shirt, Footprints, Laptop, Gem, Eye } from "lucide-react";
+
+import { Upload, Camera, CheckCircle2, XCircle, Bot, Shirt, Footprints, Laptop, Gem, Eye, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
@@ -42,44 +42,56 @@ export function InventoryCheckClient() {
   const { toast } = useToast();
   
   const [selectedStoreId, setSelectedStoreId] = useState<string>("");
-  const [checkedProductIds, _setCheckedProductIds] = useState<Set<string>>(new Set());
+  // Changed to track quantities instead of just checked status
+  const [productQuantities, _setProductQuantities] = useState<Map<string, { scanned: number; total: number }>>(new Map());
+  const [forceUpdateCounter, setForceUpdateCounter] = useState(0); // Force re-render counter
   
-  // Wrapped setCheckedProductIds with localStorage backup and ref sync
-  const setCheckedProductIds = (value: Set<string> | ((prev: Set<string>) => Set<string>)) => {
-    console.log('🎯 setCheckedProductIds called!');
+  // Wrapped setProductQuantities with localStorage backup and ref sync
+  const setProductQuantities = (value: Map<string, { scanned: number; total: number }> | ((prev: Map<string, { scanned: number; total: number }>) => Map<string, { scanned: number; total: number }>)) => {
+    console.log('🎯 setProductQuantities called!');
     console.trace('🎯 Call stack:');
     
     if (typeof value === 'function') {
-      _setCheckedProductIds((prev) => {
+      _setProductQuantities((prev) => {
         const newValue = value(prev);
-        console.log('🎯 Function update - prev:', Array.from(prev), 'new:', Array.from(newValue));
+        console.log('🎯 Function update - prev size:', prev.size, 'new size:', newValue.size);
         
         // Sync with ref immediately
-        checkedProductIdsRef.current = newValue;
-        console.log('🔄 Synced with ref:', Array.from(checkedProductIdsRef.current));
+        productQuantitiesRef.current = newValue;
+        console.log('🔄 Synced with ref size:', productQuantitiesRef.current.size);
         
-        // Save to localStorage
-        if (selectedStoreId && typeof window !== 'undefined') {
-          localStorage.setItem(`checkedItems_${selectedStoreId}`, JSON.stringify(Array.from(newValue)));
-          console.log('💾 Saved to localStorage:', Array.from(newValue));
-        }
-        
-        return newValue;
+              // Save to localStorage
+      if (selectedStoreId && typeof window !== 'undefined') {
+        const serialized = JSON.stringify(Array.from(newValue.entries()));
+        localStorage.setItem(`productQuantities_${selectedStoreId}`, serialized);
+        console.log('💾 Saved to localStorage');
+      }
+      
+      // Force component re-render
+      setForceUpdateCounter(prev => prev + 1);
+      console.log('🔄 Forced re-render counter:', forceUpdateCounter + 1);
+      
+      return newValue;
       });
     } else {
-      console.log('🎯 Direct update - new value:', Array.from(value));
+      console.log('🎯 Direct update - new value size:', value.size);
       
       // Sync with ref immediately
-      checkedProductIdsRef.current = value;
-      console.log('🔄 Synced with ref:', Array.from(checkedProductIdsRef.current));
+      productQuantitiesRef.current = value;
+      console.log('🔄 Synced with ref size:', productQuantitiesRef.current.size);
       
       // Save to localStorage
       if (selectedStoreId && typeof window !== 'undefined') {
-        localStorage.setItem(`checkedItems_${selectedStoreId}`, JSON.stringify(Array.from(value)));
-        console.log('💾 Saved to localStorage:', Array.from(value));
+        const serialized = JSON.stringify(Array.from(value.entries()));
+        localStorage.setItem(`productQuantities_${selectedStoreId}`, serialized);
+        console.log('💾 Saved to localStorage');
       }
       
-      _setCheckedProductIds(value);
+      // Force component re-render
+      setForceUpdateCounter(prev => prev + 1);
+      console.log('🔄 Forced re-render counter (direct):', forceUpdateCounter + 1);
+      
+      _setProductQuantities(value);
     }
   };
   const [isChecking, setIsChecking] = useState(false);
@@ -90,6 +102,14 @@ export function InventoryCheckClient() {
   const [isScanning, setIsScanning] = useState(false);
   const [showBarcodeDialog, setShowBarcodeDialog] = useState(false);
   const [selectedBarcodeProduct, setSelectedBarcodeProduct] = useState<Product | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importStatus, setImportStatus] = useState<{
+    type: 'loading' | 'success' | 'error';
+    message: string;
+    details?: string;
+  } | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -100,7 +120,7 @@ export function InventoryCheckClient() {
   const lastScannedRef = useRef<string | null>(null); // Prevent duplicate scans
   const isProcessingRef = useRef(false); // Prevent concurrent processing
   const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Debounce restart
-  const checkedProductIdsRef = useRef<Set<string>>(new Set()); // Backup for checked items
+  const productQuantitiesRef = useRef<Map<string, { scanned: number; total: number }>>(new Map()); // Backup for quantities
   
   // Debug isScanning state changes and sync with ref
   useEffect(() => {
@@ -121,6 +141,7 @@ export function InventoryCheckClient() {
 
   const handleScanResult = (scannedCode: string) => {
     console.log('🔍 SCAN RESULT TRIGGERED:', scannedCode);
+    console.log('🔍 Current productQuantities state before scan:', Array.from(productQuantities.entries()).slice(0, 3));
     
     // Prevent concurrent processing
     if (isProcessingRef.current) {
@@ -185,69 +206,173 @@ export function InventoryCheckClient() {
     const normalizedScannedCode = cleanedCode.toLowerCase();
     
     console.log('=== BARCODE SCAN DEBUG ===');
-    console.log('🔍 Original scanned code:', scannedCode);
-    console.log('🧹 Cleaned code:', cleanedCode);
-    console.log('🔤 Normalized code:', normalizedScannedCode);
+    console.log('🔍 Original scanned code:', JSON.stringify(scannedCode), '(length:', scannedCode.length, ')');
+    console.log('🧹 Cleaned code:', JSON.stringify(cleanedCode), '(length:', cleanedCode.length, ')');
+    console.log('🔤 Normalized code:', JSON.stringify(normalizedScannedCode), '(length:', normalizedScannedCode.length, ')');
     console.log('📦 Total products:', storeProducts.length);
-    console.log('📋 ALL product barcodes:', storeProducts.map(p => ({ name: p.name, barcode: p.barcode, id: p._id })));
-    console.log('🔒 Current checked IDs:', Array.from(checkedProductIds));
+    
+    // Find TST product specifically for comparison
+    const tstProduct = storeProducts.find(p => p.name.includes('TST'));
+    if (tstProduct) {
+      console.log('🎯 TST Product barcode in DB:', JSON.stringify(tstProduct.barcode), '(length:', tstProduct.barcode?.length || 0, ')');
+      console.log('🔍 Does scanned match TST?', {
+        exact: cleanedCode === tstProduct.barcode,
+        normalized: normalizedScannedCode === tstProduct.barcode?.toLowerCase(),
+        includes: cleanedCode.includes(tstProduct.barcode || '') || (tstProduct.barcode || '').includes(cleanedCode)
+      });
+    }
+    
+    console.log('🔒 Current quantities:', Array.from(productQuantities.entries()).slice(0, 3));
     
     // Try exact match first (with cleaned code)
     let product = storeProducts.find(p => p.barcode === cleanedCode);
-    console.log('✓ Exact match result:', product);
+    console.log('✓ Exact match result:', product?.name || 'NOT FOUND');
     
     // If no exact match, try normalized match
     if (!product) {
       product = storeProducts.find(p => p.barcode?.trim().toLowerCase() === normalizedScannedCode);
-      console.log('✓ Normalized match result:', product);
+      console.log('✓ Normalized match result:', product?.name || 'NOT FOUND');
     }
     
     // If still no match, try partial match
     if (!product) {
       product = storeProducts.find(p => p.barcode?.includes(cleanedCode) || cleanedCode.includes(p.barcode || ''));
-      console.log('✓ Partial match result:', product);
+      console.log('✓ Partial match result:', product?.name || 'NOT FOUND');
     }
     
     // Add case-insensitive exact match
     if (!product) {
       product = storeProducts.find(p => p.barcode?.toLowerCase() === normalizedScannedCode);
-      console.log('✓ Case-insensitive match result:', product);
+      console.log('✓ Case-insensitive match result:', product?.name || 'NOT FOUND');
+    }
+    
+    // Show detailed comparison for debugging
+    console.log('🔍 DETAILED BARCODE COMPARISON:');
+    storeProducts.slice(0, 5).forEach((p, index) => {
+      console.log(`${index + 1}. ${p.name.substring(0, 30)}...`);
+      console.log(`   DB Barcode: ${JSON.stringify(p.barcode)} (${p.barcode?.length || 0} chars)`);
+      console.log(`   Scanned:    ${JSON.stringify(cleanedCode)} (${cleanedCode.length} chars)`);
+      console.log(`   Match: ${p.barcode === cleanedCode ? '✅' : '❌'}`);
+    });
+    
+    // If still not found, try to find similar ones
+    if (!product) {
+      const similarProducts = storeProducts.filter(p => {
+        const barcode = p.barcode || '';
+        return barcode.includes(cleanedCode.substring(0, 5)) || 
+               cleanedCode.includes(barcode.substring(0, 5)) ||
+               barcode.toLowerCase().includes(normalizedScannedCode.substring(0, 5));
+      });
+      console.log('🔍 Similar products found:', similarProducts.map(p => ({ name: p.name, barcode: p.barcode })));
     }
     
     console.log('🎯 Final found product:', product);
     
     if (product) {
         console.log('✅ Product found! ID:', product._id, 'Name:', product.name);
+        console.log('📊 Product computerInventory:', product.computerInventory);
+        console.log('📊 Product barcode:', product.barcode);
+        console.log('📊 Scanned code vs product barcode:', { scanned: scannedCode, product: product.barcode, match: scannedCode === product.barcode });
         
-        if (checkedProductIds.has(product._id!)) {
-            console.log('⚠️ Product already checked');
+        // Get current quantity info with better default handling - use ref for most current value
+        let currentQuantity = productQuantitiesRef.current.get(product._id!) || productQuantities.get(product._id!);
+        
+        if (!currentQuantity) {
+            // Create default quantity if not exists
+            const defaultTotal = Math.max(product.computerInventory || 20, 1);
+            currentQuantity = { scanned: 0, total: defaultTotal };
+            console.log('🆕 Creating new quantity entry:', currentQuantity);
+        }
+        
+        console.log('📋 Current quantity (from ref):', currentQuantity);
+        
+        if (currentQuantity.scanned >= currentQuantity.total) {
+            console.log('⚠️ Product already fully scanned');
             toast({
-                title: "已檢查過",
-                description: `${product.name} 已在清單中。`,
+                title: "已完成掃描",
+                description: `${product.name} 已完成所有數量掃描 (${currentQuantity.scanned}/${currentQuantity.total})`,
             });
         } else {
-            console.log('🎉 Adding product to checked list');
-            console.log('🎉 Before adding - checked items:', checkedProductIds.size, Array.from(checkedProductIds));
-            console.log('🎉 Before adding - ref backup:', checkedProductIdsRef.current.size, Array.from(checkedProductIdsRef.current));
+            console.log('🎉 Scanning product, incrementing quantity');
+            console.log('🎉 Before scan - current:', currentQuantity.scanned, 'total:', currentQuantity.total);
             
-            // Create new set from current state OR ref backup (whichever has more items)
-            const currentItems = checkedProductIds.size > 0 ? checkedProductIds : checkedProductIdsRef.current;
-            const newCheckedIds = new Set(currentItems).add(product._id!);
+            // Increment scanned count
+            const newQuantity = { 
+                scanned: currentQuantity.scanned + 1, 
+                total: currentQuantity.total 
+            };
             
-            // Update both state and ref immediately
-            checkedProductIdsRef.current = newCheckedIds;
-            setCheckedProductIds(newCheckedIds);
+            console.log('🔄 Calculated new quantity:', newQuantity);
             
-            console.log('📝 After adding - checked IDs:', Array.from(newCheckedIds));
-            console.log('📝 After adding - ref backup:', Array.from(checkedProductIdsRef.current));
-            console.log('📝 New set size:', newCheckedIds.size);
+            // Update ref immediately to prevent race conditions
+            productQuantitiesRef.current.set(product._id!, newQuantity);
+            console.log('🔧 Updated ref immediately:', newQuantity);
+            
+            // Update state for UI re-render
+            setProductQuantities(prev => {
+                const newMap = new Map(prev);
+                newMap.set(product._id!, newQuantity);
+                console.log('💾 Updated state map for product:', product._id, newQuantity);
+                return newMap;
+            });
+            
+            console.log('📝 After scan - new quantity should be:', newQuantity);
+            
+            // Verify the map was actually updated
+            setTimeout(() => {
+                const verifyQuantity = productQuantities.get(product._id!);
+                console.log('🔍 VERIFICATION: After 100ms, map shows quantity as:', verifyQuantity);
+                console.log('🔍 VERIFICATION: Expected vs Actual:', { expected: newQuantity, actual: verifyQuantity });
+            }, 100);
+            
+            const isFullyScanned = newQuantity.scanned >= newQuantity.total;
+            
+            const remaining = newQuantity.total - newQuantity.scanned;
+            
+            // Check for similar products but don't show alert (just log for debugging)
+            const similarProducts = storeProducts.filter(p => 
+                p._id !== product._id && 
+                p.barcode && 
+                Math.abs(p.barcode.length - product.barcode.length) <= 1 &&
+                (p.barcode.substring(0, product.barcode.length - 1) === product.barcode.substring(0, product.barcode.length - 1))
+            );
+            
+            let warningMessage = '';
+            if (similarProducts.length > 0) {
+                warningMessage = `\n⚠️ 注意：還有 ${similarProducts.length} 個相似條碼的產品！\n請確認掃描的是正確的產品`;
+                console.log('⚠️ SIMILAR PRODUCTS WARNING:', similarProducts.map(p => ({ name: p.name, barcode: p.barcode })));
+            }
             
             toast({
-                title: "掃描成功 ✅",
-                description: `已檢查: ${product.name}\n正在準備下一次掃描...`,
-                duration: 2000,
+                title: isFullyScanned ? "掃描完成 ✅" : "掃描成功 ✅",
+                description: `🏷️ 產品: ${product.name}\n📊 條碼: ${product.barcode}\n📊 已掃描: ${newQuantity.scanned}/${newQuantity.total}\n🎯 還需掃描: ${remaining} 個${isFullyScanned ? '\n🎉 全部完成!' : ''}${warningMessage}\n正在準備下一次掃描...`,
+                duration: 4000,
             });
-            console.log('✅ Product checked successfully:', product.name);
+                                                    console.log('✅ Product scanned successfully:', product.name, `(${newQuantity.scanned}/${newQuantity.total})`);
+            console.log(`📊 LOGIC EXPLANATION: 
+- 產品總數: ${newQuantity.total} 個
+- 已掃描: ${newQuantity.scanned} 個  
+- 還需掃描: ${newQuantity.total - newQuantity.scanned} 個
+- 完成率: ${Math.round((newQuantity.scanned / newQuantity.total) * 100)}%`);
+
+            // Scroll to and highlight the updated product in table
+            setTimeout(() => {
+                const productElements = document.querySelectorAll(`[data-product-id="${product._id}"]`);
+                if (productElements.length > 0) {
+                    const element = productElements[0] as HTMLElement;
+                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    
+                    // Flash highlight effect
+                    element.style.transition = 'all 0.3s ease';
+                    element.style.backgroundColor = '#22c55e';
+                    element.style.transform = 'scale(1.02)';
+                    
+                    setTimeout(() => {
+                        element.style.backgroundColor = '';
+                        element.style.transform = '';
+                    }, 1000);
+                }
+            }, 500);
         }
         
         // Don't close scanner immediately to allow multiple scans
@@ -298,12 +423,16 @@ export function InventoryCheckClient() {
         setCameraStream(null);
       }
 
-      // Camera constraints for mobile vs desktop
+      // Optimized camera constraints for better rear camera support on mobile
       const constraints = {
         video: isMobile ? {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+          facingMode: { exact: 'environment' }, // Force rear camera
+          width: { ideal: 1920, max: 1920 },
+          height: { ideal: 1080, max: 1080 },
+          focusMode: { ideal: 'continuous' },
+          exposureMode: { ideal: 'continuous' },
+          whiteBalanceMode: { ideal: 'continuous' },
+          zoom: { ideal: 1.0 }
         } : {
           facingMode: { ideal: 'environment' },
           width: { ideal: 1280 },
@@ -327,11 +456,6 @@ export function InventoryCheckClient() {
             video.play()
               .then(() => {
                 console.log('Camera started successfully');
-                toast({
-                  title: "🎥 相機已啟動",
-                  description: "✨ 自動掃描已啟動！將商品條碼放入綠色框內",
-                  duration: 4000,
-                });
                 // Auto-start scanning when camera is ready
                 setTimeout(() => {
                   console.log('🎬 Camera ready, starting auto-scan...');
@@ -370,11 +494,20 @@ export function InventoryCheckClient() {
       console.error("Camera error:", error);
       setScannerError("相機啟動失敗: " + (error.message || "未知錯誤"));
       
-      // Try fallback constraints
+      // Try fallback constraints for mobile devices
       if (error.name === 'OverconstrainedError' || error.name === 'NotReadableError') {
         try {
           console.log('Trying fallback camera constraints...');
-          const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          // Fallback for mobile devices if exact rear camera fails
+          const fallbackConstraints = isMobile ? {
+            video: {
+              facingMode: { ideal: 'environment' }, // Use ideal instead of exact
+              width: { ideal: 1280 },
+              height: { ideal: 720 }
+            }
+          } : { video: true };
+          
+          const fallbackStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
           setCameraStream(fallbackStream);
           
           if (videoRef.current) {
@@ -494,11 +627,44 @@ export function InventoryCheckClient() {
 
   const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !storeProducts) return;
+    if (!file || !storeProducts || !selectedStoreId) {
+      toast({
+        variant: "destructive",
+        title: "錯誤",
+        description: "請先選擇商店",
+      });
+      return;
+    }
+
+    // Get current store name
+    const currentStore = stores?.find(s => s._id === selectedStoreId);
+    if (!currentStore) {
+      toast({
+        variant: "destructive",
+        title: "錯誤", 
+        description: "找不到選中的商店資訊",
+      });
+      return;
+    }
+
+    // Show loading dialog
+    setIsImporting(true);
+    setShowImportDialog(true);
+    setImportStatus({
+      type: 'loading',
+      message: '正在讀取和處理Excel文件...',
+      details: '請稍候，系統正在分析文件內容'
+    });
 
     const reader = new FileReader();
     reader.onload = async (e) => {
         try {
+            setImportStatus({
+              type: 'loading',
+              message: '正在解析Excel數據...',
+              details: '正在讀取工作表內容'
+            });
+
             const data = new Uint8Array(e.target?.result as ArrayBuffer);
             const workbook = XLSX.read(data, { type: 'array' });
             const sheetName = workbook.SheetNames[0];
@@ -510,28 +676,59 @@ export function InventoryCheckClient() {
             const newProducts: any[] = [];
             let createdCount = 0;
             let autoGeneratedCount = 0;
+            let skippedCount = 0;
+            let processedRows = 0;
             const existingBarcodes = new Set<string>();
+
+            setImportStatus({
+              type: 'loading',
+              message: '正在過濾產品數據...',
+              details: `找到 ${rows.length} 行數據，正在處理中...`
+            });
 
             for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
                 const row = rows[rowIndex];
                 if (!row || row.length === 0) continue;
                 
-                // Excel format mapping - New order:
-                // 0: 大類 (Category)
-                // 1: 廠牌 (Brand)
-                // 2: 商品編號 (Product Code/Barcode)
-                // 3: 商品名稱 (Product Name)
-                // 4: 成本 (Cost)
-                // 5: 電腦庫存 (Computer Inventory)
-                // 6: 實際庫存 (Actual Inventory)
-                // 7: 差異數量 (Difference Quantity)
-                // 8: 差異金額 (Difference Amount)
-                // 9: 備註 (Notes)
+                processedRows++;
                 
-                const category = row[0];
-                const brand = row[1];
-                let barcode = String(row[2] || '').trim();
-                const productName = row[3];
+                // Updated Excel format mapping with store name at the beginning:
+                // 0: 店名 (Store Name) - NEW COLUMN
+                // 1: 大類 (Category)
+                // 2: 廠牌 (Brand)
+                // 3: 商品編號 (Product Code/Barcode)
+                // 4: 商品名稱 (Product Name)
+                // 5: 成本 (Cost)
+                // 6: 電腦庫存 (Computer Inventory)
+                // 7: 實際庫存 (Actual Inventory)
+                // 8: 差異數量 (Difference Quantity)
+                // 9: 差異金額 (Difference Amount)
+                // 10: 備註 (Notes)
+                
+                const storeName = String(row[0] || '').trim();
+                const category = row[1];
+                const brand = row[2];
+                let barcode = String(row[3] || '').trim();
+                const productName = row[4];
+                
+                // Update progress every 50 rows
+                if (processedRows % 50 === 0) {
+                  setImportStatus({
+                    type: 'loading',
+                    message: '正在處理產品數據...',
+                    details: `已處理 ${processedRows}/${rows.length} 行 (${Math.round(processedRows/rows.length*100)}%)`
+                  });
+                  await new Promise(resolve => setTimeout(resolve, 10)); // Allow UI update
+                }
+
+                // Filter by store name - only process products for current store
+                if (!storeName || storeName.toLowerCase() !== currentStore.name.toLowerCase()) {
+                  skippedCount++;
+                  console.log(`跳過產品 ${productName || 'Unknown'} - 店名不匹配: "${storeName}" vs "${currentStore.name}"`);
+                  continue;
+                }
+
+                console.log(`✅ 處理產品 ${productName || 'Unknown'} - 店名匹配: "${storeName}"`);
                 
                 // Auto-generate barcode if empty or invalid
                 if (!barcode || barcode === 'undefined' || barcode === 'null' || barcode.length < 3) {
@@ -543,13 +740,15 @@ export function InventoryCheckClient() {
                     existingBarcodes.add(barcode);
                 }
                 
-                // Better number parsing
-                const cost = parseExcelNumber(row[4]);
-                const computerInventory = parseExcelNumber(row[5]);
-                const actualInventory = parseExcelNumber(row[6]);
-                const differenceQuantity = parseExcelNumber(row[7]);
-                const differenceAmount = parseExcelNumber(row[8]);
-                const notes = row[9] || '';
+                // Better number parsing (updated indices)
+                const cost = parseExcelNumber(row[5]);
+                const computerInventory = parseExcelNumber(row[6]);
+                const actualInventory = parseExcelNumber(row[7]);
+                const differenceQuantity = parseExcelNumber(row[8]);
+                const differenceAmount = parseExcelNumber(row[9]);
+                const notes = row[10] || '';
+                
+
 
                 // Debug logging
                 console.log('Processing row:', {
@@ -603,6 +802,12 @@ export function InventoryCheckClient() {
             // Create new products (replacing all)
             if (newProducts.length > 0) {
                 try {
+                    setImportStatus({
+                      type: 'loading',
+                      message: '正在保存產品到數據庫...',
+                      details: `準備保存 ${newProducts.length} 個產品到 ${currentStore.name}`
+                    });
+
                     console.log('Sending API request with products:', newProducts.length);
                     console.log('Request payload sample:', newProducts[0]);
                     
@@ -624,7 +829,7 @@ export function InventoryCheckClient() {
                     if (!response.ok) {
                         const errorText = await response.text();
                         console.error('API error response:', errorText);
-                        throw new Error('Failed to create new products');
+                        throw new Error(`API返回錯誤: ${response.status} - ${errorText}`);
                     }
 
                     const result = await response.json();
@@ -633,6 +838,12 @@ export function InventoryCheckClient() {
                     console.log('API response result:', result);
                     console.log('API created products sample:', result.createdProducts?.[0]);
                     
+                    setImportStatus({
+                      type: 'loading',
+                      message: '正在刷新產品列表...',
+                      details: '更新界面顯示'
+                    });
+
                     // Refresh products data to include new products
                     await mutateProducts();
                     
@@ -649,37 +860,47 @@ export function InventoryCheckClient() {
                     
                 } catch (error) {
                     console.error('Error creating products:', error);
-                    toast({
-                        variant: "destructive",
-                        title: "創建產品失敗",
-                        description: "無法創建新產品，請稍後再試。",
+                    setImportStatus({
+                      type: 'error',
+                      message: '保存產品失敗',
+                      details: `錯誤詳情: ${error instanceof Error ? error.message : '未知錯誤'}\n請檢查網絡連接或聯繫技術支持。`
                     });
                     return;
                 }
             }
 
             if (newProducts.length === 0) {
-                toast({
-                    variant: "destructive",
-                    title: "沒有找到有效產品",
-                    description: "Excel檔案中沒有有效的產品資料。請檢查檔案格式。",
+                const noMatchMessage = skippedCount > 0 
+                  ? `Excel文件中有 ${skippedCount} 個產品，但沒有任何產品屬於商店 "${currentStore.name}"`
+                  : "Excel文件中沒有有效的產品資料";
+                
+                setImportStatus({
+                  type: 'error',
+                  message: '沒有找到匹配的產品',
+                  details: `${noMatchMessage}\n\n請確保:\n• Excel文件第一列為店名，且與選中的商店名稱完全一致\n• 檔案格式正確\n• 產品資料完整`
                 });
                 return;
             }
 
-            const autoGeneratedMessage = autoGeneratedCount > 0 ? `，其中 ${autoGeneratedCount} 個自動生成 Code 128 條碼` : '';
-            toast({
-                title: "匯入成功",
-                description: `已替換商店產品清單。創建了 ${createdCount} 個新產品${autoGeneratedMessage}，請開始掃描或手動檢查。`,
+            // Success message with detailed statistics
+            const autoGeneratedMessage = autoGeneratedCount > 0 ? `\n• 自動生成條碼: ${autoGeneratedCount} 個` : '';
+            const skippedMessage = skippedCount > 0 ? `\n• 跳過其他商店產品: ${skippedCount} 個` : '';
+            
+            setImportStatus({
+              type: 'success',
+              message: '產品匯入成功！',
+              details: `✅ 匯入統計:\n• 商店: ${currentStore.name}\n• 成功創建產品: ${createdCount} 個${autoGeneratedMessage}${skippedMessage}\n• 總處理行數: ${processedRows}\n\n現在可以開始掃描或手動檢查產品。`
             });
+
         } catch (error) {
             console.error("Error processing XLSX file:", error);
-            toast({
-                variant: "destructive",
-                title: "匯入錯誤",
-                description: "無法讀取檔案。請確保是有效的Excel檔案且格式正確。",
+            setImportStatus({
+              type: 'error',
+              message: '文件處理錯誤',
+              details: `無法讀取Excel文件。\n\n錯誤詳情: ${error instanceof Error ? error.message : '未知錯誤'}\n\n請確保:\n• 文件為有效的Excel格式(.xlsx/.xls)\n• 文件沒有被其他程序占用\n• 文件結構符合要求`
             });
         } finally {
+            setIsImporting(false);
             // Reset file input
             if(fileInputRef.current) {
                 fileInputRef.current.value = "";
@@ -712,31 +933,32 @@ export function InventoryCheckClient() {
     }
   }, [storeProducts]);
 
-  // Debug: Log checkedProductIds when it changes
+  // Debug: Log productQuantities when it changes
   useEffect(() => {
-    console.log('🔍 checkedProductIds changed:', Array.from(checkedProductIds));
-    console.log('🔍 Total checked items:', checkedProductIds.size);
-    console.log('🔍 Ref backup has:', checkedProductIdsRef.current.size, 'items');
+    console.log('🔍 productQuantities changed:', Array.from(productQuantities.entries()));
+    console.log('🔍 Total products with quantities:', productQuantities.size);
+    console.log('🔍 Ref backup has:', productQuantitiesRef.current.size, 'items');
+    console.log('🔍 Force update counter:', forceUpdateCounter);
     
     // If state was reset but ref still has items, restore from ref
-    if (checkedProductIds.size === 0 && checkedProductIdsRef.current.size > 0) {
+    if (productQuantities.size === 0 && productQuantitiesRef.current.size > 0) {
       console.log('🚨 State reset detected! Restoring from ref backup...');
-      console.log('🔄 Restoring items:', Array.from(checkedProductIdsRef.current));
-      _setCheckedProductIds(new Set(checkedProductIdsRef.current));
+      console.log('🔄 Restoring items:', Array.from(productQuantitiesRef.current.entries()));
+      _setProductQuantities(new Map(productQuantitiesRef.current));
       return;
     }
     
     // Update ref to match state (for normal updates)
-    if (checkedProductIds.size > 0 || checkedProductIdsRef.current.size === 0) {
-      checkedProductIdsRef.current = checkedProductIds;
+    if (productQuantities.size > 0 || productQuantitiesRef.current.size === 0) {
+      productQuantitiesRef.current = productQuantities;
     }
     
     // Log stack trace to see what caused the change
-    if (checkedProductIds.size === 0 && checkedProductIdsRef.current.size === 0) {
-      console.log('⚠️ checkedProductIds was reset to 0! Stack trace:');
+    if (productQuantities.size === 0 && productQuantitiesRef.current.size === 0) {
+      console.log('⚠️ productQuantities was reset to 0! Stack trace:');
       console.trace();
     }
-  }, [checkedProductIds]);
+  }, [productQuantities, forceUpdateCounter]);
 
   // Debug: Log component mount/render
   useEffect(() => {
@@ -756,30 +978,57 @@ export function InventoryCheckClient() {
     console.log('✅ isChecking changed to:', isChecking);
   }, [isChecking]);
 
-  // Restore checked items from localStorage when store changes
+  // Restore product quantities from localStorage when store changes and initialize from products
   useEffect(() => {
     if (selectedStoreId && typeof window !== 'undefined') {
-      const stored = localStorage.getItem(`checkedItems_${selectedStoreId}`);
+      const stored = localStorage.getItem(`productQuantities_${selectedStoreId}`);
       if (stored) {
         try {
-          const restoredItems = JSON.parse(stored) as string[];
-          const restoredSet = new Set<string>(restoredItems);
-          console.log('🔄 Restoring checked items from localStorage:', restoredItems);
+          const restoredEntries = JSON.parse(stored) as [string, { scanned: number; total: number }][];
+          const restoredMap = new Map<string, { scanned: number; total: number }>(restoredEntries);
+          console.log('🔄 Restoring product quantities from localStorage:', restoredEntries);
           
           // Update both state and ref
-          checkedProductIdsRef.current = restoredSet;
-          _setCheckedProductIds(restoredSet);
+          productQuantitiesRef.current = restoredMap;
+          _setProductQuantities(restoredMap);
         } catch (e) {
-          console.warn('Failed to parse stored checked items:', e);
+          console.warn('Failed to parse stored product quantities:', e);
         }
       } else {
-        console.log('🔄 No stored items found for store:', selectedStoreId);
-        // Clear both state and ref for new store
-        checkedProductIdsRef.current = new Set();
-        _setCheckedProductIds(new Set());
+        console.log('🔄 No stored quantities found for store:', selectedStoreId);
+        // Initialize empty map for new store
+        productQuantitiesRef.current = new Map();
+        _setProductQuantities(new Map());
       }
     }
   }, [selectedStoreId]);
+
+  // Initialize product quantities when storeProducts change
+  useEffect(() => {
+    if (storeProducts && storeProducts.length > 0) {
+      console.log('🔄 Initializing product quantities for', storeProducts.length, 'products');
+      
+      setProductQuantities(prev => {
+        const newMap = new Map(prev);
+        
+        // Initialize any new products that don't have quantities yet
+        storeProducts.forEach(product => {
+          if (!newMap.has(product._id!)) {
+            const total = Math.max(product.computerInventory || 20, 1); // Use 20 as default if computerInventory is 0 or null
+            const quantity = { scanned: 0, total };
+            
+            console.log(`📦 Initializing ${product.name} with quantity:`, quantity, `(computerInventory: ${product.computerInventory})`);
+            newMap.set(product._id!, quantity);
+          } else {
+            console.log(`✅ ${product.name} already has quantity:`, newMap.get(product._id!));
+          }
+        });
+        
+        console.log('📊 Total quantities initialized:', newMap.size);
+        return newMap;
+      });
+    }
+  }, [storeProducts]);
 
   // Auto-start camera when scanner opens
   useEffect(() => {
@@ -791,14 +1040,14 @@ export function InventoryCheckClient() {
   // Periodic sync check to ensure state and ref are in sync
   useEffect(() => {
     const syncInterval = setInterval(() => {
-      if (checkedProductIds.size === 0 && checkedProductIdsRef.current.size > 0) {
+      if (productQuantities.size === 0 && productQuantitiesRef.current.size > 0) {
         console.log('🔄 Periodic sync: State empty but ref has items, restoring...');
-        _setCheckedProductIds(new Set(checkedProductIdsRef.current));
+        _setProductQuantities(new Map(productQuantitiesRef.current));
       }
     }, 2000); // Check every 2 seconds
 
     return () => clearInterval(syncInterval);
-  }, [checkedProductIds]);
+  }, [productQuantities]);
 
   // Auto-scanning functionality  
   const startAutoScanning = () => {
@@ -848,9 +1097,9 @@ export function InventoryCheckClient() {
     console.log('🧹 Reset flags - processing:', isProcessingRef.current, 'lastScanned:', lastScannedRef.current);
     
     toast({
-      title: "🚀 自動掃描已啟動",
-      description: "將商品條碼對準相機中央，系統會自動識別",
-      duration: 3000,
+      title: "開始掃描",
+      description: "將條碼對準相機",
+      duration: 2000,
     });
     
     // Try native BarcodeDetector first, then ZXing as backup
@@ -894,8 +1143,7 @@ export function InventoryCheckClient() {
     
     toast({
       title: "停止掃描",
-      description: "自動掃描已停止",
-      duration: 1500,
+      duration: 1000,
     });
   };
 
@@ -952,9 +1200,9 @@ export function InventoryCheckClient() {
                 
                 // Show success feedback
                 toast({
-                  title: "✅ 自動掃描成功",
-                  description: `檢測到: ${result.rawValue}\n正在準備下一次掃描...`,
-                  duration: 2000,
+                  title: "掃描成功",
+                  description: `檢測到: ${result.rawValue}`,
+                  duration: 1500,
                 });
                 
                 handleScanResult(result.rawValue);
@@ -1266,9 +1514,8 @@ export function InventoryCheckClient() {
         setIsScanning(true);
         
         toast({
-          title: "🔄 準備下一次掃描",
-          description: "自動掃描已重新啟動，請掃描下一個商品",
-          duration: 1500,
+          title: "準備下一次掃描",
+          duration: 1000,
         });
         
         startBarcodeDetection();
@@ -1277,46 +1524,13 @@ export function InventoryCheckClient() {
     }, 1000);
   };
 
-  const showDebugInfo = () => {
-    if (!storeProducts) {
-      alert('尚未載入產品資料');
-      return;
-    }
-    
-    const debugInfo = storeProducts.slice(0, 10).map(p => 
-      `${p.name}: ${p.barcode}`
-    ).join('\n');
-    
-    alert(`前 10 個產品的條碼:\n\n${debugInfo}\n\n共 ${storeProducts.length} 個產品`);
-    
-    // Also log to console for easier copying
-    console.log('All product barcodes:', storeProducts.map(p => ({ name: p.name, barcode: p.barcode, id: p._id })));
-  };
 
-  const testScanWithFirstProduct = () => {
-    if (!storeProducts || storeProducts.length === 0) {
-      toast({
-        variant: "destructive",
-        title: "無法測試",
-        description: "尚未載入產品資料",
-      });
-      return;
-    }
-    
-    const firstProduct = storeProducts[0];
-    console.log('🧪 Testing scan with first product:', firstProduct);
-    toast({
-      title: "測試掃描",
-      description: `測試產品: ${firstProduct.name} (${firstProduct.barcode})`,
-    });
-    handleScanResult(firstProduct.barcode);
-  };
 
   const handleStoreChange = (storeId: string) => {
     console.log('🏪 handleStoreChange called with storeId:', storeId);
     console.log('🏪 Current selectedStoreId:', selectedStoreId);
     console.log('🏪 Current isChecking:', isChecking);
-    console.log('🏪 Current checked items:', checkedProductIds.size);
+    console.log('🏪 Current product quantities:', productQuantities.size);
     
     if (isChecking && storeId !== selectedStoreId) {
         toast({
@@ -1329,12 +1543,12 @@ export function InventoryCheckClient() {
     
     setSelectedStoreId(storeId);
     if (storeId) {
-        // Only reset checked items if switching to a different store
+        // Only reset quantities if switching to a different store
         if (storeId !== selectedStoreId) {
-          console.log('🏪 Different store selected, resetting checked items');
-          setCheckedProductIds(new Set());
+          console.log('🏪 Different store selected, resetting quantities');
+          setProductQuantities(new Map());
         } else {
-          console.log('🏪 Same store, keeping existing checked items');
+          console.log('🏪 Same store, keeping existing quantities');
         }
         setIsChecking(true);
     } else {
@@ -1343,14 +1557,18 @@ export function InventoryCheckClient() {
   };
 
   const handleCheckProduct = (productId: string) => {
-    setCheckedProductIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(productId)) {
-        newSet.delete(productId);
+    setProductQuantities(prev => {
+      const newMap = new Map(prev);
+      const currentQuantity = newMap.get(productId) || { scanned: 0, total: 1 };
+      
+      if (currentQuantity.scanned > 0) {
+        // Reset to 0 if already scanned
+        newMap.set(productId, { ...currentQuantity, scanned: 0 });
       } else {
-        newSet.add(productId);
+        // Mark as fully scanned
+        newMap.set(productId, { ...currentQuantity, scanned: currentQuantity.total });
       }
-      return newSet;
+      return newMap;
     });
   };
   
@@ -1360,19 +1578,59 @@ export function InventoryCheckClient() {
     return ["All", ...Array.from(cats)];
   }, [storeProducts]);
 
+  // Calculate category statistics
+  const getCategoryStats = useMemo(() => {
+    if (!storeProducts) return {};
+    
+    const stats: Record<string, { unchecked: number; total: number }> = {};
+    
+    categories.forEach(category => {
+      const categoryProducts = category === 'All' 
+        ? storeProducts 
+        : storeProducts.filter(p => p.category === category);
+      
+      const unchecked = categoryProducts.filter(p => {
+        const quantity = productQuantities.get(p._id!) || { scanned: 0, total: p.computerInventory || 1 };
+        return quantity.scanned < quantity.total;
+      }).length;
+      
+      stats[category] = {
+        unchecked,
+        total: categoryProducts.length
+      };
+    });
+    
+    return stats;
+  }, [categories, storeProducts, productQuantities, forceUpdateCounter]);
+
   const completeCheck = async () => {
     if (!user || !selectedStoreId || !storeProducts) return;
     
-    const allProductIds = new Set(storeProducts.map(p => p._id!));
-    const missingProductIds = new Set([...allProductIds].filter(id => !checkedProductIds.has(id)));
-    const missingItems = storeProducts.filter(p => missingProductIds.has(p._id!));
+    // Calculate which products are fully scanned vs missing/incomplete
+    const fullyScannedIds = new Set<string>();
+    const incompleteItems: any[] = [];
+    
+    storeProducts.forEach(product => {
+      const quantity = productQuantities.get(product._id!) || { scanned: 0, total: product.computerInventory || 1 };
+      if (quantity.scanned >= quantity.total) {
+        fullyScannedIds.add(product._id!);
+      } else {
+        incompleteItems.push({
+          ...product,
+          scannedQuantity: quantity.scanned,
+          totalQuantity: quantity.total,
+          missingQuantity: quantity.total - quantity.scanned
+        });
+      }
+    });
 
     const newCheck = {
       storeId: selectedStoreId,
       storeName: stores?.find(s => s._id === selectedStoreId)?.name || 'Unknown Store',
       employeeName: user.name,
-      checkedItems: Array.from(checkedProductIds),
-      missingItems: missingItems.map(item => item._id!),
+      checkedItems: Array.from(fullyScannedIds),
+      missingItems: incompleteItems.map(item => item._id!),
+      productQuantities: Array.from(productQuantities.entries()),
     };
 
     try {
@@ -1391,11 +1649,11 @@ export function InventoryCheckClient() {
 
         // Reset state and clear localStorage
         if (typeof window !== 'undefined') {
-          localStorage.removeItem(`checkedItems_${selectedStoreId}`);
+          localStorage.removeItem(`productQuantities_${selectedStoreId}`);
           console.log('🗑️ Cleared localStorage for completed check');
         }
         setSelectedStoreId("");
-        setCheckedProductIds(new Set());
+        setProductQuantities(new Map());
         setIsChecking(false);
 
     } catch (error: any) {
@@ -1422,9 +1680,22 @@ export function InventoryCheckClient() {
                     accept=".xlsx, .xls"
                     className="hidden"
                 />
-                <Button variant="outline" disabled={!isChecking} onClick={() => fileInputRef.current?.click()}>
-                    <Upload className="mr-2" />
-                    匯入 Excel
+                <Button 
+                    variant="outline" 
+                    disabled={!isChecking || isImporting} 
+                    onClick={() => fileInputRef.current?.click()}
+                >
+                    {isImporting ? (
+                        <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+                            匯入中...
+                        </>
+                    ) : (
+                        <>
+                            <Upload className="mr-2" />
+                            匯入 Excel
+                        </>
+                    )}
                 </Button>
                 <Button onClick={handleOpenScanner} disabled={!isChecking || isInitializingCamera}>
                     <Camera className="mr-2" />
@@ -1434,45 +1705,181 @@ export function InventoryCheckClient() {
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        <div className="w-full max-w-sm">
-            <Select onValueChange={handleStoreChange} value={selectedStoreId} disabled={userStores.length <= 1 && isChecking}>
-                <SelectTrigger id="store-select">
-                    <SelectValue placeholder="選擇商店..." />
-                </SelectTrigger>
-                <SelectContent>
-                    {userStores.map(store => (
-                        <SelectItem key={store._id} value={String(store._id)}>{store.name}</SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
+        {/* Store Selection Buttons */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold">選擇商店</h3>
+            <div className="text-xs bg-gray-50 px-2 py-1 rounded">
+              總共 {userStores.length} 個商店
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {userStores.map(store => {
+              const isSelected = selectedStoreId === store._id;
+              
+              return (
+                <Button
+                  key={store._id}
+                  variant="outline"
+                  onClick={() => handleStoreChange(store._id!)}
+                  disabled={userStores.length <= 1 && isChecking && !isSelected}
+                  className={`h-auto p-2 flex flex-col items-center text-center relative transition-all duration-200 rounded-md min-h-[60px] ${
+                    isSelected 
+                      ? 'bg-blue-500 text-white border-blue-500 shadow-md scale-102 ring-1 ring-blue-300' 
+                      : 'border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300'
+                  }`}
+                >
+                  {/* Store Icon + Name */}
+                  <div className="flex items-center gap-1.5 mb-1 flex-wrap justify-center">
+                    <Warehouse className={`h-4 w-4 flex-shrink-0 ${
+                      isSelected ? 'text-white' : 'text-blue-600'
+                    }`} />
+                    <div className={`font-semibold text-xs leading-tight ${
+                      isSelected ? 'text-white' : 'text-gray-700'
+                    }`}>
+                      {store.name}
+                    </div>
+                  </div>
+                  
+                  {/* Store Status */}
+                  <div className={`text-[8px] font-medium px-1.5 py-0.5 rounded-full ${
+                    isSelected ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-600'
+                  }`}>
+                    {isSelected ? '已選擇' : '點擊選擇'}
+                  </div>
+                  
+                  {/* Selected Badge */}
+                  {isSelected && (
+                    <div className="absolute -top-0.5 -right-0.5">
+                      <div className="bg-green-500 text-white rounded-full p-0.5">
+                        <CheckCircle2 className="h-2.5 w-2.5" />
+                      </div>
+                    </div>
+                  )}
+                </Button>
+              );
+            })}
+          </div>
         </div>
 
         {isChecking && productsLoading && <Skeleton className="w-full h-64" />}
         {isChecking && !productsLoading && storeProducts && (
-          <Tabs defaultValue="All" className="w-full">
-            <div className="flex items-center">
-              <TabsList>
-                {categories.map(category => (
-                  <TabsTrigger key={category} value={category}>{category === 'All' ? '全部' : category}</TabsTrigger>
-                ))}
-              </TabsList>
-              <div className="ml-auto flex items-center gap-2">
-                 <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
+          <div className="w-full">
+            {/* Category Filter Buttons */}
+            <div className="space-y-4 mb-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">選擇產品類別</h3>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2">
                     <span className="relative flex h-3 w-3">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-sky-500"></span>
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-sky-500"></span>
                     </span>
-                    <span>待檢查 {storeProducts.length - checkedProductIds.size} 項</span>
-                    </div>
-                    <div className="text-xs bg-blue-50 px-2 py-1 rounded">
-                        總計: {storeProducts.length} 產品 | 已檢查: {checkedProductIds.size}
-                    </div>
-                 </div>
+                    <span>待完成 {getCategoryStats[selectedCategory]?.unchecked || 0} 項</span>
+                  </div>
+                  <div className="text-xs bg-blue-50 px-2 py-1 rounded">
+                    總計: {getCategoryStats[selectedCategory]?.total || 0} 產品 | 已完成: {(getCategoryStats[selectedCategory]?.total || 0) - (getCategoryStats[selectedCategory]?.unchecked || 0)}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Category Buttons Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                {categories.map(category => {
+                  const stats = getCategoryStats[category] || { unchecked: 0, total: 0 };
+                  const isSelected = selectedCategory === category;
+                  const isCompleted = stats.unchecked === 0 && stats.total > 0;
+                  
+                  return (
+                    <Button
+                      key={category}
+                      variant="outline"
+                      onClick={() => setSelectedCategory(category)}
+                      className={`h-auto p-1.5 flex flex-col items-center text-center relative transition-all duration-200 rounded-md min-h-[50px] ${
+                        isSelected 
+                          ? 'bg-blue-500 text-white border-blue-500 shadow-md scale-102 ring-1 ring-blue-300' 
+                          : isCompleted 
+                            ? 'border-green-400 bg-green-50 hover:bg-green-100 hover:border-green-500' 
+                            : stats.unchecked > 0 
+                              ? 'border-orange-400 bg-orange-50 hover:bg-orange-100 hover:border-orange-500'
+                              : 'border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300'
+                      }`}
+                    >
+                      {/* Icon + Category Name on same line */}
+                      <div className="flex items-center gap-1 mb-1 flex-wrap justify-center">
+                        {React.createElement(
+                          categoryIcons[category] || categoryIcons.Default,
+                          { 
+                            className: `h-3 w-3 flex-shrink-0 ${
+                              isSelected ? 'text-white' : 
+                              isCompleted ? 'text-green-600' : 
+                              stats.unchecked > 0 ? 'text-orange-500' : 
+                              'text-gray-500'
+                            }`
+                          }
+                        )}
+                        <div className={`font-semibold text-[10px] leading-tight ${
+                          isSelected ? 'text-white' : 
+                          isCompleted ? 'text-green-800' : 
+                          stats.unchecked > 0 ? 'text-orange-800' : 
+                          'text-gray-700'
+                        }`}>
+                          {category === 'All' ? '全部' : category}
+                        </div>
+                      </div>
+                      
+                      {/* Statistics + Status on same line */}
+                      <div className="flex items-center gap-1.5 flex-wrap justify-center">
+                        <div className={`text-xs font-bold leading-none ${
+                          isSelected ? 'text-white' : 
+                          isCompleted ? 'text-green-600' : 
+                          stats.unchecked > 0 ? 'text-orange-600' : 
+                          'text-gray-600'
+                        }`}>
+                          <span className={`${
+                            stats.unchecked > 0 && !isSelected ? 'text-red-500 font-extrabold' : ''
+                          }`}>
+                            {stats.unchecked}
+                          </span>
+                          <span className={`mx-0.5 ${isSelected ? 'text-white/60' : 'text-gray-400'}`}>/</span>
+                          <span className="text-[10px]">{stats.total}</span>
+                        </div>
+                        
+                        <div className={`text-[8px] font-medium px-1 py-0.5 rounded-full ${
+                          isSelected ? 'bg-white/20 text-white' : 
+                          isCompleted ? 'bg-green-100 text-green-700' : 
+                          stats.unchecked > 0 ? 'bg-red-50 text-red-600' : 
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {stats.unchecked === 0 ? '完成' : `剩${stats.unchecked}`}
+                        </div>
+                      </div>
+                      
+                      {/* Completion Badge - Smaller */}
+                      {isCompleted && !isSelected && (
+                        <div className="absolute -top-0.5 -right-0.5">
+                          <div className="bg-green-500 text-white rounded-full p-0.5">
+                            <CheckCircle2 className="h-2 w-2" />
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Urgent Badge - More prominent */}
+                      {stats.unchecked > 0 && !isSelected && (
+                        <div className="absolute -top-0.5 -left-0.5">
+                          <div className="bg-red-500 text-white text-[7px] rounded-full min-w-[14px] h-3.5 flex items-center justify-center font-bold">
+                            {stats.unchecked}
+                          </div>
+                        </div>
+                      )}
+                    </Button>
+                  );
+                })}
               </div>
             </div>
-            {categories.map(category => (
-              <TabsContent key={category} value={category}>
+            
+            {/* Products Table */}
                 <div className="rounded-md border overflow-x-auto">
                     <Table className="min-w-[800px]">
                         <TableHeader>
@@ -1491,19 +1898,45 @@ export function InventoryCheckClient() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {storeProducts.filter(p => category === 'All' || p.category === category).map(product => {
-                            const isChecked = checkedProductIds.has(product._id!);
+                          {storeProducts.filter(p => selectedCategory === 'All' || p.category === selectedCategory).map((product, index) => {
+                            const quantity = productQuantities.get(product._id!) || { scanned: 0, total: product.computerInventory || 1 };
+                            const isFullyScanned = quantity.scanned >= quantity.total;
                             const CategoryIcon = categoryIcons[product.category] || categoryIcons.Default;
                             
-                            // Debug logging for each product
+                            // Debug logging for each product - only log first few for performance
+                            if (index < 3) {
+                              console.log(`🔍 Table row ${index}: ${product.name} | ID: ${product._id} | Quantity from map:`, quantity, `| Map has entry:`, productQuantities.has(product._id!), `| Total map size:`, productQuantities.size, `| forceUpdateCounter:`, forceUpdateCounter);
+                            }
                             
                             return (
-                                <TableRow key={product._id} className={isChecked ? "bg-accent/50" : ""}>
+                                <TableRow 
+                                    key={product._id} 
+                                    data-product-id={product._id}
+                                    className={
+                                        isFullyScanned ? "bg-green-50 border-green-200" : 
+                                        quantity.scanned > 0 ? "bg-blue-50 border-blue-200" : 
+                                        "hover:bg-gray-50"
+                                    }>
                                     <TableCell>
-                                        <Badge variant={isChecked ? "default" : "secondary"} className="text-xs whitespace-nowrap">
-                                          {isChecked ? <CheckCircle2 className="mr-1 h-3 w-3" /> : <XCircle className="mr-1 h-3 w-3" />}
-                                          {isChecked ? '已檢查' : '待檢查'}
-                                        </Badge>
+                                        <div className="flex flex-col gap-1">
+                                            <Badge variant={isFullyScanned ? "default" : "secondary"} className="text-xs whitespace-nowrap">
+                                              {isFullyScanned ? <CheckCircle2 className="mr-1 h-3 w-3" /> : <XCircle className="mr-1 h-3 w-3" />}
+                                              {isFullyScanned ? '已完成' : '進行中'}
+                                            </Badge>
+                                            <div className="text-xs text-muted-foreground">
+                                                <div className="font-medium text-blue-600">
+                                                    已掃: {quantity.scanned}/{quantity.total}
+                                                </div>
+                                                <div className="text-green-600">
+                                                    還需: {quantity.total - quantity.scanned}
+                                                </div>
+                                                {/* {quantity.scanned > 0 && (
+                                                    <div className="text-purple-600 font-medium mt-1">
+                                                        🎯 {product.name.substring(0, 15)}...
+                                                    </div>
+                                                )} */}
+                                            </div>
+                                        </div>
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-1">
@@ -1560,14 +1993,21 @@ export function InventoryCheckClient() {
                                         </span>
                                     </TableCell>
                                     <TableCell className="text-right">
-                                        <Button 
-                                          variant={isChecked ? "outline" : "default"} 
-                                          size="sm"
-                                          className="text-xs px-2 py-1"
-                                          onClick={() => handleCheckProduct(product._id!)}
-                                        >
-                                          {isChecked ? '取消' : '檢查'}
-                                        </Button>
+                                        <div className="flex flex-col gap-1">
+                                            <Button 
+                                              variant={isFullyScanned ? "outline" : "default"} 
+                                              size="sm"
+                                              className="text-xs px-2 py-1"
+                                              onClick={() => handleCheckProduct(product._id!)}
+                                            >
+                                              {isFullyScanned ? '重設' : '完成'}
+                                            </Button>
+                                            {!isFullyScanned && quantity.scanned > 0 && (
+                                                <div className="text-xs text-blue-600 font-medium">
+                                                    剩餘: {quantity.total - quantity.scanned}
+                                                </div>
+                                            )}
+                                        </div>
                                     </TableCell>
                                 </TableRow>
                             );
@@ -1575,9 +2015,7 @@ export function InventoryCheckClient() {
                         </TableBody>
                     </Table>
                 </div>
-              </TabsContent>
-            ))}
-          </Tabs>
+          </div>
         )}
       </CardContent>
       {isChecking && (
@@ -1605,24 +2043,9 @@ export function InventoryCheckClient() {
     <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
         <DialogContent className="sm:max-w-md">
             <DialogHeader>
-                <DialogTitle>自動掃描條碼 🚀</DialogTitle>
-                <div className="space-y-2">
-                    <div className="text-sm text-muted-foreground">
-                        <strong>📱 使用說明：</strong>
-                        <br />• <strong>自動掃描</strong>：將條碼對準相機即可自動識別
-                        <br />• <strong>手動輸入</strong>：直接輸入條碼號碼
-                        <br />• <strong>查看產品</strong>：瀏覽商店所有產品條碼
-                    </div>
-                    
-                    {isMobile && (
-                        <div className="text-xs text-orange-600 bg-orange-50 p-2 rounded">
-                            💡 手機提示：如果自動掃描無法使用，請使用「手動輸入」功能
-                        </div>
-                    )}
-                    
-                    <div className="text-xs text-blue-600 bg-blue-50 p-2 rounded">
-                        🎯 掃描目標：對準條碼，保持穩定，等待自動識別
-                    </div>
+                <DialogTitle>掃描條碼</DialogTitle>
+                <div className="text-sm text-muted-foreground">
+                    將條碼對準相機中央，系統會自動識別
                 </div>
             </DialogHeader>
             <div className="flex flex-col space-y-4">
@@ -1655,18 +2078,10 @@ export function InventoryCheckClient() {
                             autoPlay
                             muted
                             webkit-playsinline="true"
-                            onLoadedMetadata={() => console.log('📹 Video metadata loaded')}
-                            onCanPlay={() => console.log('▶️ Video can play')}
+                            
                         />
-                        <div className="absolute inset-0 border-2 border-dashed border-green-400 rounded-lg pointer-events-none">
+                        <div className="absolute inset-0 pointer-events-none">
                             <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-32 border-4 border-green-500 rounded-lg bg-green-500/10">
-                                <div className="text-sm text-green-600 text-center font-bold mt-2 bg-white/90 rounded px-2 py-1 mx-2">
-                                    📱 將條碼放在此處
-                                </div>
-                                                                    <div className="text-xs text-green-700 text-center mt-1 bg-white/80 rounded px-2 py-1 mx-4">
-                                    {restartTimeoutRef.current ? '正在準備下一次掃描...' : '系統會自動識別 • 可連續掃描'}
-                                </div>
-                                
                                 {/* Corner indicators */}
                                 <div className="absolute top-0 left-0 w-6 h-6 border-l-4 border-t-4 border-green-500"></div>
                                 <div className="absolute top-0 right-0 w-6 h-6 border-r-4 border-t-4 border-green-500"></div>
@@ -1678,51 +2093,20 @@ export function InventoryCheckClient() {
                             <div className="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg">
                                 <div className="text-center">
                                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-                                    <p className="text-sm text-gray-600">正在啟動相機...</p>
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        如果載入過久，請關閉重新開啟
-                                    </p>
-                        </div>
-                    </div>
-                )}
+                                    <p className="text-sm text-gray-600">啟動相機中...</p>
+                                </div>
+                            </div>
+                        )}
                         {(isScanning || isScanningRef.current) && videoRef?.current?.srcObject && (
                             <div className="absolute top-2 left-2 bg-green-500 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-2 shadow-lg">
                                 <div className="w-3 h-3 bg-white rounded-full animate-ping"></div>
-                                <span className="font-medium">🔍 自動掃描中...</span>
+                                <span className="font-medium">掃描中</span>
                             </div>
                         )}
-                        {(isScanning || isScanningRef.current) && videoRef?.current?.srcObject && (
-                            <div className="absolute bottom-2 left-2 right-2 text-center">
-                                <div className="bg-black/70 text-white px-4 py-2 rounded-lg text-sm">
-                                    <div className="font-medium">🎯 將條碼對準此區域</div>
-                                    <div className="text-xs mt-1 text-green-300">
-                                        {restartTimeoutRef.current ? '⏳ 正在準備下一次掃描...' : '✨ 系統正在自動識別中... 可連續掃描'}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        <div className="absolute bottom-2 left-2 right-2 text-center">
-                            <div className="bg-black/70 text-white px-4 py-2 rounded-lg text-sm">
-                                <div className="font-medium">將條碼對準此區域</div>
-                                <div className="text-xs mt-1">
-                                    已檢查: {checkedProductIds.size} / {storeProducts?.length || 0}
-                                </div>
-                                <div className="text-xs mt-1 text-yellow-300">
-                                    💡 提示：保持穩定，確保條碼清晰可見
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 )}
                 <div className="flex flex-col gap-2">
-                    {cameraStream && (
-                        <div className="text-center text-sm text-green-600 font-medium mb-3">
-                            <div className="flex items-center justify-center gap-2">
-                                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                                相機已就緒 - {isScanning ? '自動掃描中' : '待機模式'}
-                            </div>
-                        </div>
-                    )}
+
                     
                     <div className="space-y-3">
                         <Button 
@@ -1732,169 +2116,14 @@ export function InventoryCheckClient() {
                             disabled={!cameraStream}
                             className="w-full font-medium"
                         >
-                            {(isScanning || isScanningRef.current) ? "🛑 停止自動掃描" : "🚀 開始自動掃描"}
+                            {(isScanning || isScanningRef.current) ? "停止掃描" : "開始掃描"}
                         </Button>
                         
-                        <div className="flex gap-2">
-                            <Button variant="outline" onClick={handleManualBarcodeInput} className="flex-1">
-                                ✏️ 手動輸入
-                            </Button>
-                            <Button 
-                                variant="outline" 
-                                onClick={async () => {
-                                    console.log('🧪 Testing native BarcodeDetector...');
-                                    try {
-                                        // @ts-ignore
-                                        if (typeof BarcodeDetector !== 'undefined') {
-                                            toast({
-                                                title: "Native API 可用",
-                                                description: "BarcodeDetector API 已支援",
-                                            });
-                                            console.log('✅ BarcodeDetector API is supported');
-                                            
-                                            // Test with current video frame
-                                            if (videoRef.current) {
-                                                // @ts-ignore
-                                                const detector = new BarcodeDetector({
-                                                    formats: ['code_128', 'code_39', 'ean_13', 'ean_8', 'upc_a', 'upc_e']
-                                                });
-                                                
-                                                try {
-                                                    // @ts-ignore
-                                                    const results = await detector.detect(videoRef.current);
-                                                    console.log('🔍 Immediate detection results:', results);
-                                                    
-                                                    if (results.length > 0) {
-                                                        const result = results[0];
-                                                        toast({
-                                                            title: "檢測成功!",
-                                                            description: `發現: ${result.rawValue} (${result.format})`,
-                                                        });
-                                                        handleScanResult(result.rawValue);
-                                                    } else {
-                                                        toast({
-                                                            title: "未檢測到條碼",
-                                                            description: "請將條碼對準相機",
-                                                        });
-                                                    }
-                                                } catch (detectionError) {
-                                                    console.error('Detection error:', detectionError);
-                                                    toast({
-                                                        variant: "destructive",
-                                                        title: "檢測錯誤",
-                                                        description: "無法檢測當前畫面",
-                                                    });
-                                                }
-                                            }
-                                        } else {
-                                            toast({
-                                                variant: "destructive",
-                                                title: "API 不支援",
-                                                description: "此瀏覽器不支援 BarcodeDetector",
-                                            });
-                                        }
-                                    } catch (error) {
-                                        console.error('BarcodeDetector test error:', error);
-                                        toast({
-                                            variant: "destructive",
-                                            title: "測試失敗",
-                                            description: "BarcodeDetector 測試失敗",
-                                        });
-                                    }
-                                }}
-                                className="flex-1"
-                            >
-                                🔬 測試API
-                            </Button>
-                        </div>
-                        
-                        <div className="flex gap-2">
-                            <Button 
-                                variant="outline" 
-                                onClick={() => {
-                                    if (!storeProducts) {
-                                        toast({
-                                            variant: "destructive",
-                                            title: "無產品資料",
-                                            description: "請先載入產品",
-                                        });
-                                        return;
-                                    }
-                                    console.log('=== ALL STORE PRODUCTS DEBUG ===');
-                                    console.log('Total products:', storeProducts.length);
-                                    storeProducts.forEach((p, index) => {
-                                        console.log(`${index + 1}. ${p.name} | Barcode: ${p.barcode} | ID: ${p._id}`);
-                                    });
-                                    console.log('=== END DEBUG ===');
-                                    
-                                    toast({
-                                        title: "Debug Info",
-                                        description: `已記錄 ${storeProducts.length} 個產品到控制台`,
-                                    });
-                                }}
-                                className="flex-1"
-                            >
-                                📋 Debug產品
-                            </Button>
-                            <Button 
-                                variant="outline" 
-                                onClick={testScanWithFirstProduct}
-                                className="flex-1"
-                            >
-                                🧪 測試掃描
-                            </Button>
-                        </div>
-                        
-                        <div className="flex gap-2">
-                            <Button 
-                                variant="outline" 
-                                onClick={() => {
-                                    const testBarcode = prompt('輸入要測試的條碼:');
-                                    if (testBarcode && testBarcode.trim()) {
-                                        console.log('🧪 Manual test with input:', testBarcode.trim());
-                                        handleScanResult(testBarcode.trim());
-                                    }
-                                }}
-                                className="flex-1"
-                            >
-                                ✏️ 輸入測試
-                            </Button>
-                            <Button 
-                                variant="outline" 
-                                onClick={() => {
-                                    console.log('🔄 重新啟動掃描...');
-                                    
-                                    // Stop current scanning
-                                    isScanningRef.current = false;
-                                    setIsScanning(false);
-                                    
-                                    if (scanIntervalRef.current) {
-                                        clearInterval(scanIntervalRef.current);
-                                        scanIntervalRef.current = null;
-                                    }
-                                    
-                                    // Wait a bit then restart
-                                    setTimeout(() => {
-                                        if (videoRef.current && canvasRef.current) {
-                                            console.log('🔄 Restarting auto-scanning...');
-                                            startAutoScanning();
-                                        } else {
-                                            toast({
-                                                variant: "destructive",
-                                                title: "無法重新啟動",
-                                                description: "相機或Canvas未準備就緒",
-                                            });
-                                        }
-                                    }, 200);
-                                }} 
-                                className="flex-1"
-                            >
-                                🔄 重新掃描
-                            </Button>
-                        </div>
+
+
                     </div>
                     <Button variant="outline" onClick={handleCloseScanner} className="w-full">
-                    關閉掃描器
+                    關閉
                 </Button>
                 </div>
                 <canvas 
@@ -1903,12 +2132,7 @@ export function InventoryCheckClient() {
                     width="640" 
                     height="480"
                 />
-                {/* Debug info */}
-                <div className="text-xs text-gray-500 text-center mt-2">
-                    Canvas: {canvasRef.current ? '✅' : '❌'} | 
-                    Video: {videoRef.current ? '✅' : '❌'} | 
-                    Scanning: {isScanning ? '🔴' : '⚪'}
-                </div>
+
             </div>
         </DialogContent>
     </Dialog>
@@ -1958,6 +2182,87 @@ export function InventoryCheckClient() {
                 >
                     關閉
                 </Button>
+            </div>
+        </DialogContent>
+    </Dialog>
+
+    {/* Import Status Dialog */}
+    <Dialog open={showImportDialog} onOpenChange={(open) => {
+      if (!isImporting) {
+        setShowImportDialog(open);
+        if (!open) {
+          setImportStatus(null);
+        }
+      }
+    }}>
+        <DialogContent className="sm:max-w-lg max-w-[90vw]">
+            <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                    {importStatus?.type === 'loading' && (
+                        <>
+                            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                            正在匯入產品
+                        </>
+                    )}
+                    {importStatus?.type === 'success' && (
+                        <>
+                            <CheckCircle2 className="h-5 w-5 text-green-600" />
+                            匯入成功
+                        </>
+                    )}
+                    {importStatus?.type === 'error' && (
+                        <>
+                            <XCircle className="h-5 w-5 text-red-600" />
+                            匯入失敗
+                        </>
+                    )}
+                </DialogTitle>
+                <DialogDescription>
+                    {importStatus?.message}
+                </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4">
+                {importStatus?.details && (
+                    <div className={`p-4 rounded-lg border text-sm whitespace-pre-line ${
+                        importStatus.type === 'loading' ? 'bg-blue-50 border-blue-200 text-blue-800' :
+                        importStatus.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' :
+                        'bg-red-50 border-red-200 text-red-800'
+                    }`}>
+                        {importStatus.details}
+                    </div>
+                )}
+                
+                {importStatus?.type === 'loading' && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <div className="w-2 h-2 bg-blue-600 rounded-full animate-ping"></div>
+                        請等待處理完成，不要關閉此對話框
+                    </div>
+                )}
+                
+                {(importStatus?.type === 'success' || importStatus?.type === 'error') && (
+                    <div className="flex gap-2">
+                        <Button 
+                            onClick={() => {
+                                setShowImportDialog(false);
+                                setImportStatus(null);
+                            }}
+                            className="flex-1"
+                            variant={importStatus.type === 'success' ? 'default' : 'outline'}
+                        >
+                            確定
+                        </Button>
+                        {importStatus.type === 'error' && (
+                            <Button 
+                                onClick={() => fileInputRef.current?.click()}
+                                variant="default"
+                                className="flex-1"
+                            >
+                                重新匯入
+                            </Button>
+                        )}
+                    </div>
+                )}
             </div>
         </DialogContent>
     </Dialog>

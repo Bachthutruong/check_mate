@@ -6,9 +6,28 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Users, Shield } from "lucide-react";
+import { Plus, Users, Shield, Edit, Trash2, MoreHorizontal } from "lucide-react";
 import { CreateUserDialog } from "./create-user-dialog";
+import { EditUserDialog } from "./edit-user-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger 
+} from "@/components/ui/dropdown-menu";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle 
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
+import React from "react";
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
@@ -27,23 +46,103 @@ interface Store {
 
 export function EmployeesManagement() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const { toast } = useToast();
 
   const { data: users, isLoading: usersLoading, mutate: mutateUsers } = useSWR<User[]>('/api/users', fetcher);
   const { data: stores, isLoading: storesLoading } = useSWR<Store[]>('/api/stores', fetcher);
 
-  const handleUserCreated = () => {
-    mutateUsers(); // Refresh users list
+  const handleUserCreated = async () => {
+    try {
+      await mutateUsers(); // Wait for users to refresh
+    } catch (error) {
+      console.error('Error refreshing users:', error);
+    }
   };
 
-  const getStoreNames = (storeIds: string[]) => {
-    if (!stores || storeIds.length === 0) return '無分配商店';
-    
-    const storeNames = storeIds
-      .map(id => stores.find(store => store._id === id)?.name)
-      .filter(Boolean);
-    
-    return storeNames.length > 0 ? storeNames.join(', ') : '無分配商店';
+  const handleUserUpdated = async () => {
+    try {
+      // First close the dialog and clear state immediately
+      setEditDialogOpen(false);
+      setSelectedUser(null);
+      
+      // Then refresh the data
+      await mutateUsers();
+    } catch (error) {
+      console.error('Error refreshing users:', error);
+      // Even if refresh fails, ensure dialog is closed
+      setEditDialogOpen(false);
+      setSelectedUser(null);
+    }
   };
+
+  const handleEditUser = (user: User) => {
+    setSelectedUser(user);
+    setEditDialogOpen(true);
+  };
+
+  const handleDeleteUser = async (user: User) => {
+    try {
+      const response = await fetch(`/api/users/${user._id}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to delete user');
+      }
+
+      toast({
+        title: "用戶刪除成功",
+        description: `用戶 ${user.name} 已被刪除。`,
+      });
+
+      await mutateUsers();
+      setUserToDelete(null);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "刪除失敗",
+        description: error.message,
+      });
+      setUserToDelete(null); // Ensure dialog closes even on error
+    }
+  };
+
+  const getUserStores = (user: User) => {
+    if (!stores || user.storeIds.length === 0) return [];
+    return stores.filter(store => user.storeIds.includes(store._id));
+  };
+
+  const handleEditDialogClose = (open: boolean) => {
+    setEditDialogOpen(open);
+    if (!open) {
+      setSelectedUser(null);
+    }
+  };
+
+  const forceCloseAllDialogs = () => {
+    setEditDialogOpen(false);
+    setCreateDialogOpen(false);
+    setSelectedUser(null);
+    setUserToDelete(null);
+  };
+
+  // Emergency cleanup effect
+  React.useEffect(() => {
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        forceCloseAllDialogs();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscapeKey);
+    return () => {
+      document.removeEventListener('keydown', handleEscapeKey);
+    };
+  }, []);
 
   if (usersLoading || storesLoading) {
     return (
@@ -68,74 +167,129 @@ export function EmployeesManagement() {
                 管理系統用戶和員工帳戶
               </CardDescription>
             </div>
-            <Button onClick={() => setCreateDialogOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
-              創建新用戶
-            </Button>
+            <div className="flex items-center gap-2">
+              {/* Debug: Force close all dialogs button (only show if any dialog is open) */}
+              {(editDialogOpen || createDialogOpen || userToDelete) && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={forceCloseAllDialogs}
+                  className="text-red-600 hover:text-red-700 border-red-200 hover:border-red-300"
+                >
+                  強制關閉對話框
+                </Button>
+              )}
+              <Button onClick={() => setCreateDialogOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                創建新用戶
+              </Button>
+            </div>
           </div>
         </CardHeader>
         
         <CardContent>
           <div className="rounded-md border overflow-x-auto">
-            <Table className="min-w-[600px]">
+            <Table className="min-w-[800px]">
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-[150px]">姓名</TableHead>
                   <TableHead className="w-[150px]">用戶名</TableHead>
                   <TableHead className="w-[100px]">角色</TableHead>
-                  <TableHead className="w-[200px]">分配商店</TableHead>
+                  <TableHead className="w-[300px]">分配商店</TableHead>
                   <TableHead className="w-[80px]">狀態</TableHead>
+                  <TableHead className="w-[100px] text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {users && users.length > 0 ? (
-                  users.map((user) => (
-                    <TableRow key={user._id}>
-                      <TableCell className="font-medium">{user.name}</TableCell>
-                      <TableCell>
-                        <code className="text-sm bg-muted px-2 py-1 rounded">
-                          {user.username}
-                        </code>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
-                          {user.role === 'admin' ? (
-                            <>
-                              <Shield className="mr-1 h-3 w-3" />
-                              管理員
-                            </>
-                          ) : (
-                            <>
-                              <Users className="mr-1 h-3 w-3" />
-                              員工
-                            </>
-                          )}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          {user.role === 'admin' ? (
-                            <span className="text-muted-foreground">全部商店</span>
-                          ) : (
-                            <span title={getStoreNames(user.storeIds)}>
-                              {getStoreNames(user.storeIds).length > 30 
-                                ? `${getStoreNames(user.storeIds).substring(0, 30)}...` 
-                                : getStoreNames(user.storeIds)
-                              }
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-green-600 border-green-600">
-                          啟用
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  users.map((user) => {
+                    const userStores = getUserStores(user);
+                    
+                    return (
+                      <TableRow key={user._id}>
+                        <TableCell className="font-medium">{user.name}</TableCell>
+                        <TableCell>
+                          <code className="text-sm bg-muted px-2 py-1 rounded">
+                            {user.username}
+                          </code>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
+                            {user.role === 'admin' ? (
+                              <>
+                                <Shield className="mr-1 h-3 w-3" />
+                                管理員
+                              </>
+                            ) : (
+                              <>
+                                <Users className="mr-1 h-3 w-3" />
+                                員工
+                              </>
+                            )}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="max-w-[280px]">
+                            {user.role === 'admin' ? (
+                              <Badge variant="outline" className="text-muted-foreground border-muted">
+                                全部商店
+                              </Badge>
+                            ) : userStores.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {userStores.map((store) => (
+                                  <Badge 
+                                    key={store._id} 
+                                    variant="outline" 
+                                    className="text-xs whitespace-nowrap"
+                                  >
+                                    {store.name}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <Badge variant="outline" className="text-muted-foreground border-muted">
+                                無分配商店
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-green-600 border-green-600">
+                            啟用
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" className="h-8 w-8 p-0">
+                                <span className="sr-only">打開菜單</span>
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem 
+                                onClick={() => handleEditUser(user)}
+                                className="cursor-pointer"
+                              >
+                                <Edit className="mr-2 h-4 w-4" />
+                                編輯
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => setUserToDelete(user)}
+                                className="cursor-pointer text-red-600 focus:text-red-600"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                刪除
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-24 text-center">
+                    <TableCell colSpan={6} className="h-24 text-center">
                       <div className="flex flex-col items-center gap-2">
                         <Users className="h-8 w-8 text-muted-foreground" />
                         <span className="text-muted-foreground">尚未創建任何用戶</span>
@@ -149,11 +303,41 @@ export function EmployeesManagement() {
         </CardContent>
       </Card>
 
+      {/* Create User Dialog */}
       <CreateUserDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
         onUserCreated={handleUserCreated}
       />
+
+      {/* Edit User Dialog */}
+      <EditUserDialog
+        open={editDialogOpen}
+        onOpenChange={handleEditDialogClose}
+        onUserUpdated={handleUserUpdated}
+        user={selectedUser}
+      />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!userToDelete} onOpenChange={() => setUserToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>確認刪除</AlertDialogTitle>
+            <AlertDialogDescription>
+              您確定要刪除用戶 "{userToDelete?.name}" 嗎？此操作無法復原。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => userToDelete && handleDeleteUser(userToDelete)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              刪除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 } 

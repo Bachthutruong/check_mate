@@ -13,10 +13,31 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
 
     try {
-        const { name, role, storeIds } = await req.json();
+        const { name, username, password, role, storeIds } = await req.json();
+        
+        // Check if username is already taken by another user
+        if (username) {
+            const existingUser = await UserModel.findOne({ username, _id: { $ne: id } });
+            if (existingUser) {
+                return NextResponse.json({ message: 'Username already exists' }, { status: 400 });
+            }
+        }
+        
+        const updateData: any = { name, role, storeIds };
+        if (username) {
+            updateData.username = username;
+        }
+        
+        // Only update password if provided
+        if (password && password.trim() !== '') {
+            const bcrypt = require('bcryptjs');
+            const hashedPassword = await bcrypt.hash(password, 10);
+            updateData.password = hashedPassword;
+        }
+        
         const updatedUser = await UserModel.findByIdAndUpdate(
             id,
-            { name, role, storeIds },
+            updateData,
             { new: true }
         ).lean();
 
@@ -29,6 +50,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         await StoreModel.updateMany({ _id: { $in: storeIds } }, { $addToSet: { employeeIds: id } });
 
         const sanitizedUser = JSON.parse(JSON.stringify(updatedUser));
+        // Remove password from response
+        delete sanitizedUser.password;
         return NextResponse.json(sanitizedUser);
 
     } catch (error) {

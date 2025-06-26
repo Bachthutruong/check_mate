@@ -35,14 +35,51 @@ export async function PUT(req: NextRequest, { params: { id } }: { params: { id: 
         if (!name) {
             return NextResponse.json({ message: 'Name is required' }, { status: 400 });
         }
-        const updatedStore = await StoreModel.findByIdAndUpdate(id, { name }, { new: true }).lean();
+
+        // Check if another store with this name already exists (excluding current store)
+        const existingStore = await StoreModel.findOne({ 
+            name: name.trim(), 
+            _id: { $ne: id } 
+        });
+        
+        if (existingStore) {
+            return NextResponse.json({ 
+                message: 'Store with this name already exists',
+                error: 'DUPLICATE_STORE_NAME',
+                existingStore: {
+                    _id: existingStore._id,
+                    name: existingStore.name
+                }
+            }, { status: 409 });
+        }
+
+        const updatedStore = await StoreModel.findByIdAndUpdate(
+            id, 
+            { name: name.trim() }, 
+            { new: true }
+        ).lean();
+        
         if (!updatedStore) {
             return NextResponse.json({ message: 'Store not found' }, { status: 404 });
         }
+        
         return NextResponse.json(JSON.parse(JSON.stringify(updatedStore)));
-    } catch (error) {
+    } catch (error: any) {
         console.error(error);
-        return NextResponse.json({ message: 'Error updating store' }, { status: 500 });
+        
+        // Handle MongoDB duplicate key error specifically
+        if (error.code === 11000) {
+            return NextResponse.json({ 
+                message: 'Store with this name already exists',
+                error: 'DUPLICATE_STORE_NAME',
+                details: 'A store with this name is already registered in the system'
+            }, { status: 409 });
+        }
+        
+        return NextResponse.json({ 
+            message: 'Error updating store',
+            error: error.message || 'Unknown error occurred'
+        }, { status: 500 });
     }
 }
 

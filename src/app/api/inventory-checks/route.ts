@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from 'next/server';
 import connectMongo from '@/lib/mongodb';
 import InventoryCheckModel from '@/models/InventoryCheck';
@@ -14,27 +13,49 @@ async function handler(req: NextRequest) {
     if (!decoded || typeof decoded !== 'object' || !('id' in decoded)) {
         return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
-    const userId = decoded.id as string;
+    const userId = (decoded as any).id as string;
 
     await connectMongo();
     
-    const user = await UserModel.findById(userId).lean();
+    const user = await UserModel.findById(userId).lean() as any;
     if (!user) return NextResponse.json({ message: 'User not found' }, { status: 404 });
 
     if (req.method === 'GET') {
         try {
             const { searchParams } = new URL(req.url);
             const storeId = searchParams.get('storeId');
+            const startDate = searchParams.get('startDate');
+            const endDate = searchParams.get('endDate');
 
             let query: any = {};
-            if (user.role === 'employee') {
-                query.storeId = { $in: user.storeIds };
-            } else if (user.role === 'admin' && storeId && storeId !== 'all') {
+            
+            // Store filtering
+            if ((user as any).role === 'employee') {
+                query.storeId = { $in: (user as any).storeIds };
+            } else if ((user as any).role === 'admin' && storeId && storeId !== 'all') {
                 query.storeId = storeId;
+            }
+
+            // Date filtering
+            if (startDate || endDate) {
+                query.date = {};
+                if (startDate) {
+                    // Set start of day for startDate
+                    const start = new Date(startDate);
+                    start.setHours(0, 0, 0, 0);
+                    query.date.$gte = start;
+                }
+                if (endDate) {
+                    // Set end of day for endDate
+                    const end = new Date(endDate);
+                    end.setHours(23, 59, 59, 999);
+                    query.date.$lte = end;
+                }
             }
 
             const checks = await InventoryCheckModel.find(query)
                 .populate('missingItems')
+                .populate('checkedItems')
                 .sort({ date: -1 })
                 .lean();
 

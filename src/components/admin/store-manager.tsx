@@ -40,7 +40,7 @@ export function StoreManager() {
   }
 
   const handleSave = async () => {
-    if (!currentStore || !currentStore.name) {
+    if (!currentStore || !currentStore.name?.trim()) {
       toast({ variant: "destructive", title: "Validation Error", description: "Store name is required." });
       return;
     }
@@ -52,16 +52,43 @@ export function StoreManager() {
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: currentStore.name }),
+        body: JSON.stringify({ name: currentStore.name.trim() }),
       });
-      if (!res.ok) throw new Error('Failed to save store');
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        
+        // Handle specific error cases
+        if (res.status === 409 && errorData.error === 'DUPLICATE_STORE_NAME') {
+          toast({ 
+            variant: "destructive", 
+            title: "Store Name Already Exists", 
+            description: `A store named "${currentStore.name}" already exists. Please choose a different name.`
+          });
+          return;
+        }
+        
+        // Handle other API errors
+        throw new Error(errorData.message || `Server error: ${res.status}`);
+      }
       
       mutateStores();
-      toast({ title: `Store ${currentStore._id ? 'Updated' : 'Added'}`, description: `"${currentStore.name}" has been saved.` });
+      toast({ 
+        title: `Store ${currentStore._id ? 'Updated' : 'Created'} Successfully`, 
+        description: `"${currentStore.name}" has been saved.` 
+      });
       setIsDialogOpen(false);
       setCurrentStore(null);
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Save Error", description: error.message });
+      console.error('Store save error:', error);
+      
+      // Show user-friendly error message
+      const errorMessage = error.message || 'An unexpected error occurred while saving the store.';
+      toast({ 
+        variant: "destructive", 
+        title: "Save Error", 
+        description: errorMessage
+      });
     }
   };
 
