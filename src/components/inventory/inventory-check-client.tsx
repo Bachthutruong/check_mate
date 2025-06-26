@@ -110,6 +110,12 @@ export function InventoryCheckClient() {
     details?: string;
   } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [cameraInfo, setCameraInfo] = useState<{
+    facing: string;
+    width: number;
+    height: number;
+    devices: string[];
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -415,7 +421,7 @@ export function InventoryCheckClient() {
 
   const startCamera = async () => {
     try {
-    setScannerError("");
+      setScannerError("");
       
       // Stop existing stream first
       if (cameraStream) {
@@ -423,106 +429,225 @@ export function InventoryCheckClient() {
         setCameraStream(null);
       }
 
-      // Optimized camera constraints for better rear camera support on mobile
-      const constraints = {
-        video: isMobile ? {
-          facingMode: { exact: 'environment' }, // Force rear camera
-          width: { ideal: 1920, max: 1920 },
-          height: { ideal: 1080, max: 1080 },
-          focusMode: { ideal: 'continuous' },
-          exposureMode: { ideal: 'continuous' },
-          whiteBalanceMode: { ideal: 'continuous' },
-          zoom: { ideal: 1.0 }
-        } : {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        }
-      };
-
-      console.log('Starting camera with constraints:', constraints);
+      // Enhanced mobile detection
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                           (window.innerWidth <= 768 && 'ontouchstart' in window);
       
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('Device detection:', { isMobile, isMobileDevice, userAgent: navigator.userAgent });
+
+      // Progressive constraint strategy for mobile devices
+      const constraintStrategies = [];
+      
+      if (isMobileDevice) {
+        // Strategy 1: High-end mobile constraints
+        constraintStrategies.push({
+          video: {
+            facingMode: { exact: 'environment' },
+            width: { ideal: 1920, min: 640, max: 1920 },
+            height: { ideal: 1080, min: 480, max: 1080 },
+            aspectRatio: { ideal: 16/9 },
+            frameRate: { ideal: 30, min: 15, max: 30 }
+          }
+        });
+        
+        // Strategy 2: Medium mobile constraints
+        constraintStrategies.push({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280, min: 640 },
+            height: { ideal: 720, min: 480 },
+            frameRate: { ideal: 24, min: 15 }
+          }
+        });
+        
+        // Strategy 3: Basic mobile constraints
+        constraintStrategies.push({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 854, min: 640 },
+            height: { ideal: 480, min: 360 }
+          }
+        });
+        
+        // Strategy 4: Minimal mobile constraints
+        constraintStrategies.push({
+          video: {
+            facingMode: 'environment'
+          }
+        });
+      } else {
+        // Desktop constraints
+        constraintStrategies.push({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        });
+      }
+      
+      // Strategy 5: Universal fallback
+      constraintStrategies.push({ video: true });
+
+      let stream = null;
+      let usedStrategy = -1;
+      
+      // Try each strategy until one works
+      for (let i = 0; i < constraintStrategies.length; i++) {
+        try {
+          console.log(`Trying camera strategy ${i + 1}:`, constraintStrategies[i]);
+          
+          stream = await navigator.mediaDevices.getUserMedia(constraintStrategies[i]);
+          usedStrategy = i;
+          
+          console.log(`✅ Camera strategy ${i + 1} successful!`);
+          
+          // Check camera capabilities
+          const videoTrack = stream.getVideoTracks()[0];
+          if (videoTrack) {
+            const capabilities = videoTrack.getCapabilities?.();
+            const settings = videoTrack.getSettings();
+            console.log('Camera capabilities:', capabilities);
+            console.log('Camera settings:', settings);
+            
+            // Verify we got the rear camera on mobile
+            if (isMobileDevice && settings.facingMode !== 'environment' && i < 2) {
+              console.log('⚠️ Did not get rear camera, trying next strategy...');
+              stream.getTracks().forEach(track => track.stop());
+              continue;
+            }
+          }
+          
+          break;
+        } catch (error: any) {
+          console.log(`❌ Camera strategy ${i + 1} failed:`, error.name, error.message);
+          if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+          }
+          
+          // Continue to next strategy
+          if (i === constraintStrategies.length - 1) {
+            throw error; // Re-throw if all strategies failed
+          }
+        }
+      }
+      
+      if (!stream) {
+        throw new Error('無法獲取相機流');
+      }
+      
       setCameraStream(stream);
+      
+      // Show success message with strategy info
+      if (usedStrategy >= 0) {
+        const strategyNames = ['高畫質', '中等畫質', '基本畫質', '最小設定', '通用模式'];
+        toast({
+          title: "相機已啟動",
+          description: `使用${strategyNames[usedStrategy] || '預設'}設定`,
+          duration: 3000,
+        });
+      }
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         
-        // Wait for video to load and play
+        // Enhanced video loading with better error handling
         return new Promise<void>((resolve, reject) => {
           const video = videoRef.current!;
+          let timeoutId: NodeJS.Timeout;
+          
+          const cleanup = () => {
+            video.removeEventListener('loadedmetadata', onLoadedMetadata);
+            video.removeEventListener('error', onError);
+            video.removeEventListener('canplay', onCanPlay);
+            if (timeoutId) clearTimeout(timeoutId);
+          };
           
           const onLoadedMetadata = () => {
+            console.log('📹 Video metadata loaded:', {
+              width: video.videoWidth,
+              height: video.videoHeight,
+              duration: video.duration
+            });
+          };
+          
+          const onCanPlay = () => {
             video.play()
               .then(() => {
-                console.log('Camera started successfully');
+                console.log('✅ Camera started successfully');
+                cleanup();
+                
                 // Auto-start scanning when camera is ready
                 setTimeout(() => {
                   console.log('🎬 Camera ready, starting auto-scan...');
-                  console.log('- Current isScanning:', isScanning);
-                  console.log('- Has interval:', !!scanIntervalRef.current);
-                  
-                  // Force start auto-scanning
                   if (!isScanning) {
                     startAutoScanning();
                   } else {
                     console.log('⚠️ Already scanning, restarting...');
-                    // Restart if needed
                     setIsScanning(false);
                     setTimeout(() => {
                       startAutoScanning();
                     }, 100);
                   }
-                }, 1000); // Faster start
+                }, 1000);
+                
                 resolve();
               })
-              .catch(reject);
+              .catch((playError) => {
+                console.error('Video play error:', playError);
+                cleanup();
+                reject(playError);
+              });
+          };
+          
+          const onError = (errorEvent: Event) => {
+            console.error('Video error:', errorEvent);
+            cleanup();
+            reject(new Error('視頻載入錯誤'));
           };
           
           video.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
-          video.addEventListener('error', reject, { once: true });
+          video.addEventListener('canplay', onCanPlay, { once: true });
+          video.addEventListener('error', onError, { once: true });
           
-          // Timeout after 10 seconds
-          setTimeout(() => {
-            video.removeEventListener('loadedmetadata', onLoadedMetadata);
-            video.removeEventListener('error', reject);
-            reject(new Error('Camera load timeout'));
-          }, 10000);
+          // Longer timeout for mobile devices
+          const timeoutDuration = isMobileDevice ? 15000 : 10000;
+          timeoutId = setTimeout(() => {
+            cleanup();
+            reject(new Error('相機載入超時'));
+          }, timeoutDuration);
         });
       }
+      
     } catch (error: any) {
       console.error("Camera error:", error);
-      setScannerError("相機啟動失敗: " + (error.message || "未知錯誤"));
       
-      // Try fallback constraints for mobile devices
-      if (error.name === 'OverconstrainedError' || error.name === 'NotReadableError') {
-        try {
-          console.log('Trying fallback camera constraints...');
-          // Fallback for mobile devices if exact rear camera fails
-          const fallbackConstraints = isMobile ? {
-            video: {
-              facingMode: { ideal: 'environment' }, // Use ideal instead of exact
-              width: { ideal: 1280 },
-              height: { ideal: 720 }
-            }
-          } : { video: true };
-          
-          const fallbackStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
-          setCameraStream(fallbackStream);
-          
-          if (videoRef.current) {
-            videoRef.current.srcObject = fallbackStream;
-            await videoRef.current.play();
-            setScannerError("");
-            toast({
-              title: "相機已啟動",
-              description: "使用預設相機設定",
-            });
-          }
-        } catch (fallbackError: any) {
-          console.error("Fallback camera error:", fallbackError);
-          setScannerError("無法啟動相機。請檢查相機權限和設備可用性。");
-        }
+      let errorMessage = "相機啟動失敗: " + (error.message || "未知錯誤");
+      
+      // Provide specific error messages for common issues
+      if (error.name === 'NotAllowedError') {
+        errorMessage = "需要相機權限。請在瀏覽器設定中允許使用相機。";
+      } else if (error.name === 'NotFoundError') {
+        errorMessage = "找不到相機設備。請確認設備有可用的相機。";
+      } else if (error.name === 'NotReadableError') {
+        errorMessage = "相機正被其他應用程式使用。請關閉其他使用相機的應用程式。";
+      } else if (error.name === 'OverconstrainedError') {
+        errorMessage = "相機不支援所需的設定。將嘗試使用基本設定。";
+      } else if (error.name === 'SecurityError') {
+        errorMessage = "安全限制阻止了相機存取。請確認您在安全的連線 (HTTPS) 上使用此功能。";
+      }
+      
+      setScannerError(errorMessage);
+      
+      // Show helpful tips for mobile users
+      if (isMobile) {
+        toast({
+          variant: "destructive",
+          title: "行動裝置相機問題",
+          description: "請嘗試重新整理頁面或在瀏覽器設定中重新授權相機權限",
+          duration: 5000,
+        });
       }
     }
   };
@@ -1661,6 +1786,49 @@ export function InventoryCheckClient() {
     }
   };
 
+  // Function to get camera information for debugging
+  const getCameraInfo = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      
+      console.log('Available cameras:', videoDevices);
+      
+      const deviceNames = videoDevices.map(device => 
+        device.label || `Camera ${videoDevices.indexOf(device) + 1}`
+      );
+      
+      // Get current camera info if available
+      if (cameraStream) {
+        const videoTrack = cameraStream.getVideoTracks()[0];
+        const settings = videoTrack.getSettings();
+        
+        setCameraInfo({
+          facing: settings.facingMode || 'unknown',
+          width: settings.width || 0,
+          height: settings.height || 0,
+          devices: deviceNames
+        });
+      } else {
+        setCameraInfo({
+          facing: 'not active',
+          width: 0,
+          height: 0,
+          devices: deviceNames
+        });
+      }
+    } catch (error) {
+      console.error('Error getting camera info:', error);
+    }
+  };
+
+  // Auto-refresh camera info when stream changes
+  useEffect(() => {
+    if (cameraStream) {
+      getCameraInfo();
+    }
+  }, [cameraStream]);
+
   if (!user || storesLoading) return <Skeleton className="w-full h-96" />;
 
   return (
@@ -2040,12 +2208,53 @@ export function InventoryCheckClient() {
     </Card>
     
     <Dialog open={isScannerOpen} onOpenChange={setIsScannerOpen}>
-        <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-                <DialogTitle>掃描條碼</DialogTitle>
+        <DialogContent className="sm:max-w-lg">
+                          <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                    掃描條碼
+                    {isMobile && (
+                        <Badge variant="secondary" className="text-xs">
+                            行動裝置
+                        </Badge>
+                    )}
+                </DialogTitle>
                 <div className="text-sm text-muted-foreground">
                     將條碼對準相機中央，系統會自動識別
                 </div>
+                
+                {/* Mobile Usage Tips */}
+                {isMobile && !cameraStream && (
+                    <div className="text-xs bg-blue-50 border border-blue-200 p-3 rounded">
+                        <div className="font-medium text-blue-800 mb-1">📱 行動裝置使用提示:</div>
+                        <ul className="text-blue-700 space-y-1">
+                            <li>• 允許瀏覽器使用相機權限</li>
+                            <li>• 確保使用後鏡頭 (camera sau)</li>
+                            <li>• 保持條碼距離相機 10-20cm</li>
+                            <li>• 確保光線充足且條碼清晰</li>
+                            <li>• 如果不能掃描，可使用手動輸入</li>
+                        </ul>
+                    </div>
+                )}
+                
+                {/* Camera Info Display */}
+                {cameraInfo && (
+                    <div className="text-xs bg-gray-50 p-2 rounded border">
+                        <div className="grid grid-cols-2 gap-2">
+                            <span>相機方向: <strong>{cameraInfo.facing === 'environment' ? '後鏡頭 ✅' : cameraInfo.facing === 'user' ? '前鏡頭 ⚠️' : cameraInfo.facing}</strong></span>
+                            <span>解析度: <strong>{cameraInfo.width}x{cameraInfo.height}</strong></span>
+                        </div>
+                        {cameraInfo.devices.length > 0 && (
+                            <div className="mt-1">
+                                可用設備: <strong>{cameraInfo.devices.length}</strong> 個相機
+                            </div>
+                        )}
+                        {isMobile && cameraInfo.facing !== 'environment' && (
+                            <div className="mt-1 text-orange-600 font-medium">
+                                ⚠️ 建議使用後鏡頭以獲得更好的掃描效果
+                            </div>
+                        )}
+                    </div>
+                )}
             </DialogHeader>
             <div className="flex flex-col space-y-4">
                 {scannerError ? (
@@ -2060,6 +2269,28 @@ export function InventoryCheckClient() {
                             <br />• 設備有可用的相機
                             <br />• 使用支援的瀏覽器 (Chrome, Firefox, Safari)
                         </p>
+                        
+                        {/* Debug buttons for mobile */}
+                        {isMobile && (
+                            <div className="mt-3 flex gap-2">
+                                <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={startCamera}
+                                    className="text-xs"
+                                >
+                                    重試相機
+                                </Button>
+                                <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={getCameraInfo}
+                                    className="text-xs"
+                                >
+                                    檢查設備
+                                </Button>
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <div className="relative">
@@ -2093,6 +2324,9 @@ export function InventoryCheckClient() {
                                 <div className="text-center">
                                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
                                     <p className="text-sm text-gray-600">啟動相機中...</p>
+                                    {isMobile && (
+                                        <p className="text-xs text-gray-500 mt-1">行動裝置可能需要較長時間</p>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -2102,11 +2336,18 @@ export function InventoryCheckClient() {
                                 <span className="font-medium">掃描中</span>
                             </div>
                         )}
+                        
+                        {/* Camera facing indicator for mobile */}
+                        {isMobile && cameraInfo && videoRef?.current?.srcObject && (
+                            <div className="absolute top-2 right-2 bg-black/70 text-white px-2 py-1 rounded text-xs">
+                                {cameraInfo.facing === 'environment' ? '後鏡頭' : 
+                                 cameraInfo.facing === 'user' ? '前鏡頭' : 
+                                 cameraInfo.facing}
+                            </div>
+                        )}
                     </div>
                 )}
                 <div className="flex flex-col gap-2">
-
-                    
                     <div className="space-y-3">
                         <Button 
                             size="lg"
@@ -2118,12 +2359,34 @@ export function InventoryCheckClient() {
                             {(isScanning || isScanningRef.current) ? "停止掃描" : "開始掃描"}
                         </Button>
                         
-
-
+                        {/* Additional mobile options */}
+                        {isMobile && cameraStream && (
+                            <div className="grid grid-cols-2 gap-2">
+                                <Button 
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleManualBarcodeInput}
+                                    className="text-xs"
+                                >
+                                    手動輸入
+                                </Button>
+                                <Button 
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                        handleCloseScanner();
+                                        setTimeout(() => handleOpenScanner(), 100);
+                                    }}
+                                    className="text-xs"
+                                >
+                                    重新啟動
+                                </Button>
+                            </div>
+                        )}
                     </div>
                     <Button variant="outline" onClick={handleCloseScanner} className="w-full">
-                    關閉
-                </Button>
+                        關閉
+                    </Button>
                 </div>
                 <canvas 
                     ref={canvasRef} 

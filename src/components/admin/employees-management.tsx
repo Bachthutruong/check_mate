@@ -188,117 +188,123 @@ export function EmployeesManagement() {
         </CardHeader>
         
         <CardContent>
-          <div className="rounded-md border overflow-x-auto">
-            <Table className="min-w-[800px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[150px]">姓名</TableHead>
-                  <TableHead className="w-[150px]">用戶名</TableHead>
-                  <TableHead className="w-[100px]">角色</TableHead>
-                  <TableHead className="w-[300px]">分配商店</TableHead>
-                  <TableHead className="w-[80px]">狀態</TableHead>
-                  <TableHead className="w-[100px] text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users && users.length > 0 ? (
-                  users.map((user) => {
-                    const userStores = getUserStores(user);
-                    
-                    return (
-                      <TableRow key={user._id}>
-                        <TableCell className="font-medium">{user.name}</TableCell>
-                        <TableCell>
-                          <code className="text-sm bg-muted px-2 py-1 rounded">
-                            {user.username}
-                          </code>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={user.role === 'admin' ? 'default' : 'secondary'}>
-                            {user.role === 'admin' ? (
-                              <>
-                                <Shield className="mr-1 h-3 w-3" />
-                                管理員
-                              </>
-                            ) : (
-                              <>
-                                <Users className="mr-1 h-3 w-3" />
-                                員工
-                              </>
-                            )}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="max-w-[280px]">
-                            {user.role === 'admin' ? (
-                              <Badge variant="outline" className="text-muted-foreground border-muted">
-                                全部商店
-                              </Badge>
-                            ) : userStores.length > 0 ? (
-                              <div className="flex flex-wrap gap-1">
-                                {userStores.map((store) => (
-                                  <Badge 
-                                    key={store._id} 
-                                    variant="outline" 
-                                    className="text-xs whitespace-nowrap"
-                                  >
-                                    {store.name}
-                                  </Badge>
-                                ))}
-                              </div>
-                            ) : (
-                              <Badge variant="outline" className="text-muted-foreground border-muted">
-                                無分配商店
-                              </Badge>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="text-green-600 border-green-600">
-                            啟用
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" className="h-8 w-8 p-0">
-                                <span className="sr-only">打開菜單</span>
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem 
-                                onClick={() => handleEditUser(user)}
-                                className="cursor-pointer"
-                              >
-                                <Edit className="mr-2 h-4 w-4" />
-                                編輯
-                              </DropdownMenuItem>
-                              <DropdownMenuItem 
-                                onClick={() => setUserToDelete(user)}
-                                className="cursor-pointer text-red-600 focus:text-red-600"
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                刪除
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                ) : (
+          <div className="w-full">
+            <div className="rounded-md border overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100" style={{ maxWidth: '90vw' }}>
+              <Table className="w-full table-fixed min-w-[850px]">
+                <TableHeader>
                   <TableRow>
-                    <TableCell colSpan={6} className="h-24 text-center">
-                      <div className="flex flex-col items-center gap-2">
-                        <Users className="h-8 w-8 text-muted-foreground" />
-                        <span className="text-muted-foreground">尚未創建任何用戶</span>
-                      </div>
-                    </TableCell>
+                    <TableHead className="w-[120px] text-xs">姓名</TableHead>
+                    <TableHead className="w-[130px] text-xs">用戶名</TableHead>
+                    <TableHead className="w-[100px] text-xs">角色</TableHead>
+                    <TableHead className="w-[280px] text-xs">分配商店</TableHead>
+                    <TableHead className="w-[80px] text-xs">狀態</TableHead>
+                    <TableHead className="w-[90px] text-right text-xs">操作</TableHead>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {users && users.length > 0 ? (
+                    users.map((user) => {
+                      const userStores = getUserStores(user);
+                      
+                      return (
+                        <TableRow key={user._id} className="[&>td]:py-3">
+                          <TableCell className="font-medium">
+                            <div className="text-xs font-medium" title={user.name}>
+                              {user.name}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <code className="text-xs bg-muted px-2 py-1 rounded whitespace-nowrap">
+                              {user.username}
+                            </code>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={user.role === 'admin' ? 'default' : 'secondary'} className="text-xs whitespace-nowrap w-fit">
+                              {user.role === 'admin' ? (
+                                <>
+                                  <Shield className="mr-1 h-3 w-3" />
+                                  管理員
+                                </>
+                              ) : (
+                                <>
+                                  <Users className="mr-1 h-3 w-3" />
+                                  員工
+                                </>
+                              )}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="max-w-[260px]">
+                              {user.role === 'admin' ? (
+                                <Badge variant="outline" className="text-xs text-muted-foreground border-muted">
+                                  全部商店
+                                </Badge>
+                              ) : userStores.length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {userStores.map((store) => (
+                                    <Badge 
+                                      key={store._id} 
+                                      variant="outline" 
+                                      className="text-[10px] whitespace-nowrap"
+                                    >
+                                      {store.name}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                <Badge variant="outline" className="text-xs text-muted-foreground border-muted">
+                                  無分配商店
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-xs text-green-600 border-green-600 whitespace-nowrap w-fit">
+                              啟用
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" className="h-7 w-7 p-0">
+                                  <span className="sr-only">打開菜單</span>
+                                  <MoreHorizontal className="h-3 w-3" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem 
+                                  onClick={() => handleEditUser(user)}
+                                  className="cursor-pointer text-xs"
+                                >
+                                  <Edit className="mr-2 h-3 w-3" />
+                                  編輯
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
+                                  onClick={() => setUserToDelete(user)}
+                                  className="cursor-pointer text-xs text-red-600 focus:text-red-600"
+                                >
+                                  <Trash2 className="mr-2 h-3 w-3" />
+                                  刪除
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={6} className="h-24 text-center">
+                        <div className="flex flex-col items-center gap-2">
+                          <Users className="h-8 w-8 text-muted-foreground" />
+                          <span className="text-muted-foreground text-sm">尚未創建任何用戶</span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </div>
         </CardContent>
       </Card>
