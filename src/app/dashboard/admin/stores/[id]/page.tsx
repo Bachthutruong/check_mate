@@ -58,17 +58,41 @@ function StoreInfo({ store, mutate }: { store: Store, mutate: () => void }) {
     const { toast } = useToast();
 
     const handleSave = async () => {
-        const res = await fetch(`/api/stores/${store._id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name }),
-        });
+        try {
+            const res = await fetch(`/api/stores/${store._id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name.trim() }),
+            });
 
-        if (res.ok) {
-            toast({ title: "Store Updated", description: "Store information has been saved." });
-            mutate();
-        } else {
-            toast({ variant: "destructive", title: "Error", description: "Failed to update store." });
+            if (res.ok) {
+                toast({ title: "Store Updated", description: "Store information has been saved." });
+                mutate();
+            } else {
+                const errorData = await res.json();
+                
+                // Handle specific error cases
+                if (res.status === 409 && errorData.error === 'DUPLICATE_STORE_NAME') {
+                    toast({ 
+                        variant: "destructive", 
+                        title: "Store Name Already Exists", 
+                        description: `A store named "${name}" already exists. Please choose a different name.`
+                    });
+                } else {
+                    toast({ 
+                        variant: "destructive", 
+                        title: "Update Error", 
+                        description: errorData.message || "Failed to update store."
+                    });
+                }
+            }
+        } catch (error: any) {
+            console.error('Store update error:', error);
+            toast({ 
+                variant: "destructive", 
+                title: "Error", 
+                description: "An unexpected error occurred while updating the store."
+            });
         }
     };
 
