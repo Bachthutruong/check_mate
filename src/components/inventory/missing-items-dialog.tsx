@@ -23,29 +23,29 @@ interface MissingItemsDialogProps {
 export function MissingItemsDialog({ isOpen, onClose, items }: MissingItemsDialogProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-2xl max-h-[80vh] flex flex-col">
+      <DialogContent className="sm:max-w-2xl max-w-[95vw] max-h-[85vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5 text-red-500" />
-            Missing Items Report
+          <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
+            <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0" />
+            <span>缺失商品報告</span>
           </DialogTitle>
-          <DialogDescription>
-            The following items were expected but not found during the inventory check.
+          <DialogDescription className="text-sm">
+            以下商品在庫存檢查中預期但未找到。
           </DialogDescription>
         </DialogHeader>
         
         <div className="flex-1 overflow-hidden">
           {items.length > 0 ? (
             <>
-              <div className="flex items-center justify-between mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                 <div className="flex items-center gap-2">
-                  <Package className="h-4 w-4 text-red-600" />
+                  <Package className="h-4 w-4 text-red-600 flex-shrink-0" />
                   <span className="text-sm font-medium text-red-800">
-                    Total {items.length} missing items
+                    總計 {items.length} 項缺失商品
                   </span>
                 </div>
-                <Badge variant="destructive" className="text-xs">
-                  Requires Review
+                <Badge variant="destructive" className="text-xs self-start sm:self-center">
+                  需要審核
                 </Badge>
               </div>
               
@@ -53,26 +53,40 @@ export function MissingItemsDialog({ isOpen, onClose, items }: MissingItemsDialo
                 <Table>
                   <TableHeader className="sticky top-0 bg-secondary">
                     <TableRow>
-                      <TableHead className="w-[50px]">No.</TableHead>
-                      <TableHead>Product Name</TableHead>
-                      <TableHead>Category</TableHead>
-                      <TableHead className="hidden sm:table-cell">商品編號</TableHead>
+                      <TableHead className="w-[50px]">序號</TableHead>
+                      <TableHead>商品名稱</TableHead>
+                      <TableHead className="hidden sm:table-cell">類別</TableHead>
+                      <TableHead className="hidden md:table-cell">商品編號</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {items.map((item, index) => (
                       <TableRow key={item._id}>
-                        <TableCell className="text-center text-muted-foreground">
+                        <TableCell className="text-center text-muted-foreground font-medium">
                           {index + 1}
                         </TableCell>
-                        <TableCell className="font-medium">{item.name}</TableCell>
                         <TableCell>
+                          <div className="space-y-1">
+                            <div className="font-medium text-sm">{item.name}</div>
+                            <div className="sm:hidden flex flex-col gap-1 text-xs text-muted-foreground">
+                              <Badge variant="outline" className="text-xs w-fit">
+                                {item.category}
+                              </Badge>
+                              <div className="md:hidden">
+                                <code className="text-xs bg-muted px-2 py-1 rounded">
+                                  {item.barcode || 'N/A'}
+                                </code>
+                              </div>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <Badge variant="outline" className="text-xs">
                             {item.category}
                           </Badge>
                         </TableCell>
-                        <TableCell className="hidden sm:table-cell text-muted-foreground">
-                          <code className="text-xs bg-muted px-2 py-1 rounded">
+                        <TableCell className="hidden md:table-cell text-muted-foreground">
+                          <code className="text-xs bg-muted px-2 py-1 rounded break-all">
                             {item.barcode || 'N/A'}
                           </code>
                         </TableCell>
@@ -85,19 +99,19 @@ export function MissingItemsDialog({ isOpen, onClose, items }: MissingItemsDialo
           ) : (
             <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
               <Package className="h-12 w-12 mb-4" />
-              <p>No missing items</p>
+              <p className="text-sm">沒有缺失商品</p>
             </div>
           )}
         </div>
         
-        <DialogFooter className="flex flex-col sm:flex-row gap-2">
+        <DialogFooter className="flex flex-col sm:flex-row gap-2 sm:gap-4">
           <div className="flex-1 text-xs text-muted-foreground">
             {items.length > 0 && (
-              <>Please contact warehouse management to verify these items.</>
+              <>請聯繫倉庫管理員核實這些商品。</>
             )}
           </div>
-          <Button type="button" onClick={onClose}>
-            Close
+          <Button type="button" onClick={onClose} className="w-full sm:w-auto">
+            關閉
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1666,13 +1666,13 @@ export function InventoryCheckClient() {
   return (
     <>
     <Card>
-      <CardHeader>
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="grid gap-2">
-                <CardTitle>開始新的檢查</CardTitle>
-                <p className="text-muted-foreground">選擇一個商店開始檢查庫存。</p>
+      <CardHeader className="px-3 sm:px-6 pb-3 sm:pb-6">
+        <div className="flex flex-col gap-3 sm:gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="grid gap-1 sm:gap-2">
+                <CardTitle className="text-lg sm:text-xl">開始新的檢查</CardTitle>
+                <p className="text-sm text-muted-foreground">選擇一個商店開始檢查庫存。</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
                 <input
                     type="file"
                     ref={fileInputRef}
@@ -1682,82 +1682,104 @@ export function InventoryCheckClient() {
                 />
                 <Button 
                     variant="outline" 
+                    size="sm"
                     disabled={!isChecking || isImporting} 
                     onClick={() => fileInputRef.current?.click()}
+                    className="text-xs sm:text-sm h-8 sm:h-9"
                 >
                     {isImporting ? (
                         <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
-                            匯入中...
+                            <div className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-current mr-1 sm:mr-2"></div>
+                            <span className="hidden sm:inline">匯入中...</span>
+                            <span className="sm:hidden">匯入</span>
                         </>
                     ) : (
                         <>
-                            <Upload className="mr-2" />
-                            匯入 Excel
+                            <Upload className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                            <span className="hidden sm:inline">匯入 Excel</span>
+                            <span className="sm:hidden">匯入</span>
                         </>
                     )}
                 </Button>
-                <Button onClick={handleOpenScanner} disabled={!isChecking || isInitializingCamera}>
-                    <Camera className="mr-2" />
-                    {isInitializingCamera ? "啟動相機中..." : "掃描條碼"}
+                <Button 
+                    onClick={handleOpenScanner} 
+                    disabled={!isChecking || isInitializingCamera}
+                    size="sm"
+                    className="text-xs sm:text-sm h-8 sm:h-9"
+                >
+                    <Camera className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                    <span className="hidden sm:inline">{isInitializingCamera ? "啟動相機中..." : "掃描條碼"}</span>
+                    <span className="sm:hidden">{isInitializingCamera ? "啟動" : "掃描"}</span>
                 </Button>
             </div>
         </div>
       </CardHeader>
-      <CardContent className="space-y-6">
-        {/* Store Selection Buttons */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold">選擇商店</h3>
-            <div className="text-xs bg-gray-50 px-2 py-1 rounded">
+      <CardContent className="space-y-4 sm:space-y-6 px-3 sm:px-6">
+        {/* Store Selection Badges */}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <h3 className="text-base sm:text-lg font-semibold">選擇商店</h3>
+            <div className="text-xs bg-gray-50 px-2 py-1 rounded border w-fit">
               總共 {userStores.length} 個商店
             </div>
           </div>
           
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          {/* Store Badges - Flex Wrap Layout */}
+          <div className="flex flex-wrap gap-1.5 sm:gap-2">
             {userStores.map(store => {
               const isSelected = selectedStoreId === store._id;
               
               return (
-                <Button
+                <div
                   key={store._id}
-                  variant="outline"
                   onClick={() => handleStoreChange(store._id!)}
-                  disabled={userStores.length <= 1 && isChecking && !isSelected}
-                  className={`h-auto p-2 flex flex-col items-center text-center relative transition-all duration-200 rounded-md min-h-[60px] ${
-                    isSelected 
-                      ? 'bg-blue-500 text-white border-blue-500 shadow-md scale-102 ring-1 ring-blue-300' 
-                      : 'border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300'
-                  }`}
+                  className="relative cursor-pointer group"
                 >
-                  {/* Store Icon + Name */}
-                  <div className="flex items-center gap-1.5 mb-1 flex-wrap justify-center">
-                    <Warehouse className={`h-4 w-4 flex-shrink-0 ${
+                  <Badge
+                    variant={isSelected ? "default" : "secondary"}
+                    className={`
+                      flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium 
+                      transition-colors duration-200 
+                      min-h-[28px] sm:min-h-[36px] select-none text-center
+                      ${isSelected 
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md ring-1 ring-blue-300' 
+                        : 'bg-white hover:bg-blue-50 text-blue-700 border-blue-300 hover:border-blue-400'
+                      }
+                      ${userStores.length <= 1 && isChecking && !isSelected ? 'opacity-50 cursor-not-allowed' : ''}
+                    `}
+                  >
+                    {/* Store Icon */}
+                    <Warehouse className={`h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0 ${
                       isSelected ? 'text-white' : 'text-blue-600'
                     }`} />
-                    <div className={`font-semibold text-xs leading-tight ${
-                      isSelected ? 'text-white' : 'text-gray-700'
-                    }`}>
+                    
+                    {/* Store Name */}
+                    <span className="font-medium">
                       {store.name}
+                    </span>
+                    
+                    {/* Status Badge */}
+                    <div className={`
+                      px-1.5 py-0.5 sm:px-2 rounded-full text-[10px] sm:text-xs font-bold 
+                      min-w-[16px] sm:min-w-[20px] text-center
+                      ${isSelected 
+                        ? 'bg-white/20 text-white' 
+                        : 'bg-blue-100 text-blue-800'
+                      }
+                    `}>
+                      {isSelected ? '已選' : '選擇'}
                     </div>
-                  </div>
+                  </Badge>
                   
-                  {/* Store Status */}
-                  <div className={`text-[8px] font-medium px-1.5 py-0.5 rounded-full ${
-                    isSelected ? 'bg-white/20 text-white' : 'bg-blue-50 text-blue-600'
-                  }`}>
-                    {isSelected ? '已選擇' : '點擊選擇'}
-                  </div>
-                  
-                  {/* Selected Badge */}
+                  {/* Selected Indicator */}
                   {isSelected && (
-                    <div className="absolute -top-0.5 -right-0.5">
+                    <div className="absolute -top-0.5 -right-0.5 z-10">
                       <div className="bg-green-500 text-white rounded-full p-0.5">
-                        <CheckCircle2 className="h-2.5 w-2.5" />
+                        <CheckCircle2 className="h-2 w-2 sm:h-3 sm:w-3" />
                       </div>
                     </div>
                   )}
-                </Button>
+                </div>
               );
             })}
           </div>
@@ -1766,135 +1788,131 @@ export function InventoryCheckClient() {
         {isChecking && productsLoading && <Skeleton className="w-full h-64" />}
         {isChecking && !productsLoading && storeProducts && (
           <div className="w-full">
-            {/* Category Filter Buttons */}
-            <div className="space-y-4 mb-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">選擇產品類別</h3>
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            {/* Category Filter Tags */}
+            <div className="space-y-3 mb-6">
+              <div className="flex flex-col gap-2">
+                <h3 className="text-base sm:text-lg font-semibold">產品類別篩選</h3>
+                <div className="flex flex-col gap-2 text-sm text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <span className="relative flex h-3 w-3">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-3 w-3 bg-sky-500"></span>
                     </span>
-                    <span>待完成 {getCategoryStats[selectedCategory]?.unchecked || 0} 項</span>
+                    <span className="text-xs sm:text-sm">待完成 {getCategoryStats[selectedCategory]?.unchecked || 0} 項</span>
                   </div>
-                  <div className="text-xs bg-blue-50 px-2 py-1 rounded">
-                    總計: {getCategoryStats[selectedCategory]?.total || 0} 產品 | 已完成: {(getCategoryStats[selectedCategory]?.total || 0) - (getCategoryStats[selectedCategory]?.unchecked || 0)}
+                  <div className="text-xs bg-blue-50 px-2 py-1 rounded border inline-block w-fit">
+                    總計: {getCategoryStats[selectedCategory]?.total || 0} | 已完成: {(getCategoryStats[selectedCategory]?.total || 0) - (getCategoryStats[selectedCategory]?.unchecked || 0)}
                   </div>
                 </div>
               </div>
               
-              {/* Category Buttons Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                {categories.map(category => {
-                  const stats = getCategoryStats[category] || { unchecked: 0, total: 0 };
-                  const isSelected = selectedCategory === category;
-                  const isCompleted = stats.unchecked === 0 && stats.total > 0;
-                  
-                  return (
-                    <Button
-                      key={category}
-                      variant="outline"
-                      onClick={() => setSelectedCategory(category)}
-                      className={`h-auto p-1.5 flex flex-col items-center text-center relative transition-all duration-200 rounded-md min-h-[50px] ${
-                        isSelected 
-                          ? 'bg-blue-500 text-white border-blue-500 shadow-md scale-102 ring-1 ring-blue-300' 
-                          : isCompleted 
-                            ? 'border-green-400 bg-green-50 hover:bg-green-100 hover:border-green-500' 
-                            : stats.unchecked > 0 
-                              ? 'border-orange-400 bg-orange-50 hover:bg-orange-100 hover:border-orange-500'
-                              : 'border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300'
-                      }`}
-                    >
-                      {/* Icon + Category Name on same line */}
-                      <div className="flex items-center gap-1 mb-1 flex-wrap justify-center">
-                        {React.createElement(
-                          categoryIcons[category] || categoryIcons.Default,
-                          { 
-                            className: `h-3 w-3 flex-shrink-0 ${
-                              isSelected ? 'text-white' : 
-                              isCompleted ? 'text-green-600' : 
-                              stats.unchecked > 0 ? 'text-orange-500' : 
-                              'text-gray-500'
-                            }`
-                          }
-                        )}
-                        <div className={`font-semibold text-[10px] leading-tight ${
-                          isSelected ? 'text-white' : 
-                          isCompleted ? 'text-green-800' : 
-                          stats.unchecked > 0 ? 'text-orange-800' : 
-                          'text-gray-700'
-                        }`}>
-                          {category === 'All' ? '全部' : category}
-                        </div>
-                      </div>
-                      
-                      {/* Statistics + Status on same line */}
-                      <div className="flex items-center gap-1.5 flex-wrap justify-center">
-                        <div className={`text-xs font-bold leading-none ${
-                          isSelected ? 'text-white' : 
-                          isCompleted ? 'text-green-600' : 
-                          stats.unchecked > 0 ? 'text-orange-600' : 
-                          'text-gray-600'
-                        }`}>
-                          <span className={`${
-                            stats.unchecked > 0 && !isSelected ? 'text-red-500 font-extrabold' : ''
-                          }`}>
-                            {stats.unchecked}
+              {/* Category Tags - Mobile Optimized */}
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                  {categories.map(category => {
+                    const stats = getCategoryStats[category] || { unchecked: 0, total: 0 };
+                    const isSelected = selectedCategory === category;
+                    const isCompleted = stats.unchecked === 0 && stats.total > 0;
+                    
+                    return (
+                      <div
+                        key={category}
+                        onClick={() => setSelectedCategory(category)}
+                        className="relative cursor-pointer group"
+                      >
+                        <Badge
+                          variant={isSelected ? "default" : "secondary"}
+                          className={`
+                            flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium 
+                            transition-colors duration-200 
+                            min-h-[28px] sm:min-h-[36px] select-none text-center
+                            ${isSelected 
+                              ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md ring-1 ring-blue-300' 
+                              : isCompleted 
+                                ? 'bg-green-100 hover:bg-green-200 text-green-800 border-green-300' 
+                                : stats.unchecked > 0 
+                                  ? 'bg-orange-100 hover:bg-orange-200 text-orange-800 border-orange-300'
+                                  : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300'
+                            }
+                          `}
+                        >
+                          {/* Icon - Hidden on very small screens */}
+                          <div className="hidden xs:block">
+                            {React.createElement(
+                              categoryIcons[category] || categoryIcons.Default,
+                              { 
+                                className: `h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0 ${
+                                  isSelected ? 'text-white' : 
+                                  isCompleted ? 'text-green-600' : 
+                                  stats.unchecked > 0 ? 'text-orange-600' : 
+                                  'text-gray-500'
+                                }`
+                              }
+                            )}
+                          </div>
+                          
+                          {/* Category Name - Full display */}
+                          <span className="font-medium">
+                            {category === 'All' ? '全部' : category}
                           </span>
-                          <span className={`mx-0.5 ${isSelected ? 'text-white/60' : 'text-gray-400'}`}>/</span>
-                          <span className="text-[10px]">{stats.total}</span>
-                        </div>
+                          
+                          {/* Count Badge */}
+                          <div className={`
+                            px-1.5 py-0.5 sm:px-2 rounded-full text-[10px] sm:text-xs font-bold 
+                            min-w-[16px] sm:min-w-[20px] text-center
+                            ${isSelected 
+                              ? 'bg-white/20 text-white' 
+                              : isCompleted 
+                                ? 'bg-green-200 text-green-800' 
+                                : stats.unchecked > 0 
+                                  ? 'bg-orange-200 text-orange-800'
+                                  : 'bg-gray-200 text-gray-600'
+                            }
+                          `}>
+                            {stats.unchecked > 0 ? stats.unchecked : stats.total}
+                          </div>
+                        </Badge>
                         
-                        <div className={`text-[8px] font-medium px-1 py-0.5 rounded-full ${
-                          isSelected ? 'bg-white/20 text-white' : 
-                          isCompleted ? 'bg-green-100 text-green-700' : 
-                          stats.unchecked > 0 ? 'bg-red-50 text-red-600' : 
-                          'bg-gray-100 text-gray-600'
-                        }`}>
-                          {stats.unchecked === 0 ? '完成' : `剩${stats.unchecked}`}
-                        </div>
+                        {/* Status Indicator - Smaller on mobile */}
+                        {isCompleted && !isSelected && (
+                          <div className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 z-10">
+                            <div className="bg-green-500 text-white rounded-full p-0.5">
+                              <CheckCircle2 className="h-2 w-2 sm:h-3 sm:w-3" />
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Count Indicator - Show checked/total */}
+                        {stats.total > 0 && !isSelected && (
+                          <div className="absolute -top-0.5 -left-0.5 sm:-top-1 sm:-left-1 z-10">
+                            <div className={`text-white text-[7px] sm:text-[8px] rounded-full min-w-[16px] h-3 sm:min-w-[20px] sm:h-4 flex items-center justify-center font-bold px-1 ${
+                              stats.unchecked === 0 ? 'bg-green-500' : 'bg-blue-500'
+                            }`}>
+                              {stats.total - stats.unchecked}/{stats.total}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      
-                      {/* Completion Badge - Smaller */}
-                      {isCompleted && !isSelected && (
-                        <div className="absolute -top-0.5 -right-0.5">
-                          <div className="bg-green-500 text-white rounded-full p-0.5">
-                            <CheckCircle2 className="h-2 w-2" />
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Urgent Badge - More prominent */}
-                      {stats.unchecked > 0 && !isSelected && (
-                        <div className="absolute -top-0.5 -left-0.5">
-                          <div className="bg-red-500 text-white text-[7px] rounded-full min-w-[14px] h-3.5 flex items-center justify-center font-bold">
-                            {stats.unchecked}
-                          </div>
-                        </div>
-                      )}
-                    </Button>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+                
+
               </div>
             </div>
             
             {/* Products Table */}
-                <div className="rounded-md border overflow-x-auto">
-                    <Table className="min-w-[800px]">
+            <div className="w-full">
+                <div className="rounded-md border overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100" style={{ maxWidth: '90vw' }}>
+                    <Table className="w-full table-fixed min-w-[750px]">
                         <TableHeader>
                             <TableRow>
-                                <TableHead className="w-[80px]">狀態</TableHead>
-                                <TableHead className="w-[100px]">大類</TableHead>
-                                <TableHead className="w-[80px]">廠牌</TableHead>
-                                <TableHead className="w-[120px]">商品編號</TableHead>
-                                <TableHead className="w-[200px]">商品名稱</TableHead>
-                                <TableHead className="w-[80px]">成本</TableHead>
-                                <TableHead className="w-[80px]">電腦庫存</TableHead>
-                                <TableHead className="w-[80px]">實際庫存</TableHead>
-                                <TableHead className="w-[80px]">差異數量</TableHead>
-                                <TableHead className="w-[80px]">差異金額</TableHead>
-                                <TableHead className="w-[120px] text-right">操作</TableHead>
+                                <TableHead className="w-[100px] text-xs">狀態</TableHead>
+                                <TableHead className="w-[140px] text-xs whitespace-nowrap">大類</TableHead>
+                                <TableHead className="w-[140px] text-xs whitespace-nowrap">商品編號</TableHead>
+                                <TableHead className="w-[250px] text-xs">商品名稱</TableHead>
+                                <TableHead className="w-[80px] text-xs whitespace-nowrap">電腦庫存</TableHead>
+                                <TableHead className="w-[100px] text-right text-xs">操作</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1912,43 +1930,35 @@ export function InventoryCheckClient() {
                                 <TableRow 
                                     key={product._id} 
                                     data-product-id={product._id}
-                                    className={
+                                    className={`${
                                         isFullyScanned ? "bg-green-50 border-green-200" : 
                                         quantity.scanned > 0 ? "bg-blue-50 border-blue-200" : 
                                         "hover:bg-gray-50"
-                                    }>
+                                    } [&>td]:py-3`}>
                                     <TableCell>
                                         <div className="flex flex-col gap-1">
-                                            <Badge variant={isFullyScanned ? "default" : "secondary"} className="text-xs whitespace-nowrap">
+                                            <Badge variant={isFullyScanned ? "default" : "secondary"} className="text-xs whitespace-nowrap w-fit">
                                               {isFullyScanned ? <CheckCircle2 className="mr-1 h-3 w-3" /> : <XCircle className="mr-1 h-3 w-3" />}
                                               {isFullyScanned ? '已完成' : '進行中'}
                                             </Badge>
-                                            <div className="text-xs text-muted-foreground">
+                                            <div className="text-xs text-muted-foreground whitespace-nowrap">
                                                 <div className="font-medium text-blue-600">
                                                     已掃: {quantity.scanned}/{quantity.total}
                                                 </div>
                                                 <div className="text-green-600">
                                                     還需: {quantity.total - quantity.scanned}
                                                 </div>
-                                                {/* {quantity.scanned > 0 && (
-                                                    <div className="text-purple-600 font-medium mt-1">
-                                                        🎯 {product.name.substring(0, 15)}...
-                                                    </div>
-                                                )} */}
                                             </div>
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className="flex items-center gap-1">
+                                        <div className="flex items-center gap-1 whitespace-nowrap">
                                             <CategoryIcon className="h-3 w-3 text-muted-foreground flex-shrink-0"/>
-                                            <span className="text-xs whitespace-nowrap">{product.category}</span>
+                                            <span className="text-xs">{product.category}</span>
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <span className="text-xs whitespace-nowrap">{product.brand || '-'}</span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <div className="flex flex-col items-center gap-2">
+                                        <div className="flex items-center gap-2 whitespace-nowrap">
                                             <span className="text-xs font-mono text-muted-foreground">
                                                 {product.barcode}
                                             </span>
@@ -1956,54 +1966,42 @@ export function InventoryCheckClient() {
                                                 variant="outline"
                                                 size="sm"
                                                 onClick={() => handleShowBarcode(product)}
-                                                className="px-2 py-1"
+                                                className="px-1 py-1 h-6 w-6 flex-shrink-0"
                                             >
-                                                <Eye className="h-4 w-4" />
+                                                <Eye className="h-3 w-3" />
                                             </Button>
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className="text-xs font-medium truncate" title={product.name}>
-                                            {product.name}
+                                        <div className="space-y-1">
+                                            <div className="text-xs font-medium" title={product.name}>
+                                                {product.name}
+                                            </div>
+                                            {/* Brand badge for all devices */}
+                                            {product.brand && (
+                                                <Badge variant="outline" className="text-[10px] px-2 py-0.5 bg-gray-50">
+                                                    {product.brand}
+                                                </Badge>
+                                            )}
                                         </div>
                                     </TableCell>
-                                    <TableCell>
-                                        <span className="text-xs font-medium text-blue-600 whitespace-nowrap">
-                                            {Number(product.cost || 0).toLocaleString('zh-TW')}
-                                        </span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <span className={`text-xs font-medium whitespace-nowrap ${(product.computerInventory || 0) > 0 ? 'text-green-600' : 'text-gray-500'}`}>
+                                    <TableCell className="whitespace-nowrap">
+                                        <span className={`text-xs font-medium ${(product.computerInventory || 0) > 0 ? 'text-green-600' : 'text-gray-500'}`}>
                                             {Number(product.computerInventory || 0).toLocaleString('zh-TW')}
                                         </span>
                                     </TableCell>
-                                    <TableCell>
-                                        <span className={`text-xs font-medium whitespace-nowrap ${(product.actualInventory || 0) < 0 ? 'text-red-600' : (product.actualInventory || 0) > 0 ? 'text-green-600' : 'text-gray-500'}`}>
-                                            {Number(product.actualInventory || 0).toLocaleString('zh-TW')}
-                                        </span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <span className={`text-xs font-medium whitespace-nowrap ${(product.differenceQuantity || 0) !== 0 ? 'text-orange-600' : 'text-gray-500'}`}>
-                                            {Number(product.differenceQuantity || 0).toLocaleString('zh-TW')}
-                                        </span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <span className={`text-xs font-medium whitespace-nowrap ${(product.differenceAmount || 0) !== 0 ? 'text-orange-600' : 'text-gray-500'}`}>
-                                            {Number(product.differenceAmount || 0).toLocaleString('zh-TW')}
-                                        </span>
-                                    </TableCell>
                                     <TableCell className="text-right">
-                                        <div className="flex flex-col gap-1">
+                                        <div className="flex flex-col gap-1 items-end">
                                             <Button 
                                               variant={isFullyScanned ? "outline" : "default"} 
                                               size="sm"
-                                              className="text-xs px-2 py-1"
+                                              className="text-xs px-3 py-1.5 min-w-[60px]"
                                               onClick={() => handleCheckProduct(product._id!)}
                                             >
                                               {isFullyScanned ? '重設' : '完成'}
                                             </Button>
                                             {!isFullyScanned && quantity.scanned > 0 && (
-                                                <div className="text-xs text-blue-600 font-medium">
+                                                <div className="text-[10px] text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded-full whitespace-nowrap">
                                                     剩餘: {quantity.total - quantity.scanned}
                                                 </div>
                                             )}
@@ -2012,9 +2010,10 @@ export function InventoryCheckClient() {
                                 </TableRow>
                             );
                           })}
-                        </TableBody>
+                                </TableBody>
                     </Table>
                 </div>
+            </div>
           </div>
         )}
       </CardContent>
