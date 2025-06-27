@@ -9,11 +9,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
-import { Upload, Camera, CheckCircle2, XCircle, Bot, Shirt, Footprints, Laptop, Gem, Eye, Warehouse } from "lucide-react";
+import { Upload, Camera, CheckCircle2, XCircle, Bot, Shirt, Footprints, Laptop, Gem, Eye, Warehouse, Download, X, Edit3 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 // import { useZxing } from "react-zxing";
 import Barcode from "react-barcode";
 import { Skeleton } from "../ui/skeleton";
@@ -48,48 +50,54 @@ export function InventoryCheckClient() {
   
   // Wrapped setProductQuantities with localStorage backup and ref sync
   const setProductQuantities = (value: Map<string, { scanned: number; total: number }> | ((prev: Map<string, { scanned: number; total: number }>) => Map<string, { scanned: number; total: number }>)) => {
-    console.log('🎯 setProductQuantities called!');
-    console.trace('🎯 Call stack:');
     
     if (typeof value === 'function') {
       _setProductQuantities((prev) => {
         const newValue = value(prev);
-        console.log('🎯 Function update - prev size:', prev.size, 'new size:', newValue.size);
         
         // Sync with ref immediately
         productQuantitiesRef.current = newValue;
-        console.log('🔄 Synced with ref size:', productQuantitiesRef.current.size);
         
-              // Save to localStorage
-      if (selectedStoreId && typeof window !== 'undefined') {
-        const serialized = JSON.stringify(Array.from(newValue.entries()));
-        localStorage.setItem(`productQuantities_${selectedStoreId}`, serialized);
-        console.log('💾 Saved to localStorage');
-      }
-      
-      // Force component re-render
-      setForceUpdateCounter(prev => prev + 1);
-      console.log('🔄 Forced re-render counter:', forceUpdateCounter + 1);
-      
-      return newValue;
+        // Save to localStorage with better debugging
+        if (selectedStoreId && typeof window !== 'undefined' && newValue.size > 0) {
+          const serialized = JSON.stringify(Array.from(newValue.entries()));
+          const storageKey = `productQuantities_${selectedStoreId}`;
+          localStorage.setItem(storageKey, serialized);
+          
+          // Verify save
+          const verified = localStorage.getItem(storageKey);
+        } else if (newValue.size === 0) {
+          console.log('⚠️ Skipping localStorage save - empty map');
+        } else {
+          console.log('⚠️ Skipping localStorage save - no store selected');
+        }
+        
+        // Force component re-render
+        setForceUpdateCounter(prev => prev + 1);
+        
+        return newValue;
       });
     } else {
-      console.log('🎯 Direct update - new value size:', value.size);
       
       // Sync with ref immediately
       productQuantitiesRef.current = value;
-      console.log('🔄 Synced with ref size:', productQuantitiesRef.current.size);
       
-      // Save to localStorage
-      if (selectedStoreId && typeof window !== 'undefined') {
+      // Save to localStorage with better debugging
+      if (selectedStoreId && typeof window !== 'undefined' && value.size > 0) {
         const serialized = JSON.stringify(Array.from(value.entries()));
-        localStorage.setItem(`productQuantities_${selectedStoreId}`, serialized);
-        console.log('💾 Saved to localStorage');
+        const storageKey = `productQuantities_${selectedStoreId}`;
+        localStorage.setItem(storageKey, serialized);
+        
+        // Verify save
+        const verified = localStorage.getItem(storageKey);
+      } else if (value.size === 0) {
+        console.log('⚠️ Skipping localStorage save - empty map');
+      } else {
+        console.log('⚠️ Skipping localStorage save - no store selected');
       }
       
       // Force component re-render
       setForceUpdateCounter(prev => prev + 1);
-      console.log('🔄 Forced re-render counter (direct):', forceUpdateCounter + 1);
       
       _setProductQuantities(value);
     }
@@ -110,12 +118,22 @@ export function InventoryCheckClient() {
     details?: string;
   } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [hasCompletedCheck, setHasCompletedCheck] = useState<boolean>(false);
+  const [showQuantityDialog, setShowQuantityDialog] = useState<boolean>(false);
+  const [quantityInputProduct, setQuantityInputProduct] = useState<Product | null>(null);
+  const [quantityInput, setQuantityInput] = useState<string>("");
   const [cameraInfo, setCameraInfo] = useState<{
     facing: string;
     width: number;
     height: number;
     devices: string[];
   } | null>(null);
+  const [showManualInputDialog, setShowManualInputDialog] = useState<boolean>(false);
+  const [manualBarcode, setManualBarcode] = useState<string>("");
+  const [manualQuantity, setManualQuantity] = useState<string>("1");
+  const [productSuggestions, setProductSuggestions] = useState<Product[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState<number>(-1);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -130,7 +148,6 @@ export function InventoryCheckClient() {
   
   // Debug isScanning state changes and sync with ref
   useEffect(() => {
-    console.log('🎯 isScanning state changed to:', isScanning);
     isScanningRef.current = isScanning; // Sync ref with state
   }, [isScanning]);
   
@@ -146,8 +163,6 @@ export function InventoryCheckClient() {
   const { data: storeProducts, isLoading: productsLoading, mutate: mutateProducts } = useSWR<Product[]>(selectedStoreId ? `/api/products?storeId=${selectedStoreId}` : null, fetcher);
 
   const handleScanResult = (scannedCode: string) => {
-    console.log('🔍 SCAN RESULT TRIGGERED:', scannedCode);
-    console.log('🔍 Current productQuantities state before scan:', Array.from(productQuantities.entries()).slice(0, 3));
     
     // Prevent concurrent processing
     if (isProcessingRef.current) {
@@ -165,11 +180,11 @@ export function InventoryCheckClient() {
     isProcessingRef.current = true;
     lastScannedRef.current = scannedCode;
     
-    // Reset duplicate prevention after 1.5 seconds (shorter for continuous scanning)
+    // Reset duplicate prevention after 3 seconds (longer delay to prevent rapid scanning)
     setTimeout(() => {
       lastScannedRef.current = null;
       console.log('🔄 Reset lastScanned - ready for same barcode again');
-    }, 1500);
+    }, 3000);
     
     if (!storeProducts) {
       console.error('❌ No store products loaded');
@@ -197,7 +212,6 @@ export function InventoryCheckClient() {
     // Only process numeric barcodes (our format)
     const cleanedCode = scannedCode.trim();
     if (!/^[0-9A-Z]{8,15}$/i.test(cleanedCode)) {
-      console.log('🚫 Invalid barcode format:', cleanedCode);
       isProcessingRef.current = false; // Reset processing flag
       toast({
         variant: "destructive",
@@ -211,12 +225,6 @@ export function InventoryCheckClient() {
     // Clean and normalize the scanned code
     const normalizedScannedCode = cleanedCode.toLowerCase();
     
-    console.log('=== BARCODE SCAN DEBUG ===');
-    console.log('🔍 Original scanned code:', JSON.stringify(scannedCode), '(length:', scannedCode.length, ')');
-    console.log('🧹 Cleaned code:', JSON.stringify(cleanedCode), '(length:', cleanedCode.length, ')');
-    console.log('🔤 Normalized code:', JSON.stringify(normalizedScannedCode), '(length:', normalizedScannedCode.length, ')');
-    console.log('📦 Total products:', storeProducts.length);
-    
     // Find TST product specifically for comparison
     const tstProduct = storeProducts.find(p => p.name.includes('TST'));
     if (tstProduct) {
@@ -228,7 +236,6 @@ export function InventoryCheckClient() {
       });
     }
     
-    console.log('🔒 Current quantities:', Array.from(productQuantities.entries()).slice(0, 3));
     
     // Try exact match first (with cleaned code)
     let product = storeProducts.find(p => p.barcode === cleanedCode);
@@ -299,10 +306,31 @@ export function InventoryCheckClient() {
                 description: `${product.name} 已完成所有數量掃描 (${currentQuantity.scanned}/${currentQuantity.total})`,
             });
         } else {
-            console.log('🎉 Scanning product, incrementing quantity');
+            console.log('🎉 Scanning product, checking if needs quantity input');
             console.log('🎉 Before scan - current:', currentQuantity.scanned, 'total:', currentQuantity.total);
             
-            // Increment scanned count
+            // If total quantity > 2 and not fully scanned, show quantity input dialog
+            if (currentQuantity.total > 2) {
+                console.log('📝 Product has >2 total, showing quantity input dialog');
+                
+                // Stop scanning temporarily
+                stopAutoScanning();
+                
+                // Show quantity input dialog
+                setQuantityInputProduct(product);
+                setQuantityInput(String(Math.min(currentQuantity.total - currentQuantity.scanned, currentQuantity.total))); // Default to remaining or total
+                setShowQuantityDialog(true);
+                
+                toast({
+                    title: "掃描成功 ✅",
+                    description: `🏷️ 產品: ${product.name}\n📊 請輸入實際掃描數量 (最多 ${currentQuantity.total - currentQuantity.scanned} 個)`,
+                    duration: 3000,
+                });
+                
+                return; // Don't process further, wait for user input
+            }
+            
+            // For products with total <= 2, increment by 1 as before
             const newQuantity = { 
                 scanned: currentQuantity.scanned + 1, 
                 total: currentQuantity.total 
@@ -324,15 +352,7 @@ export function InventoryCheckClient() {
             
             console.log('📝 After scan - new quantity should be:', newQuantity);
             
-            // Verify the map was actually updated
-            setTimeout(() => {
-                const verifyQuantity = productQuantities.get(product._id!);
-                console.log('🔍 VERIFICATION: After 100ms, map shows quantity as:', verifyQuantity);
-                console.log('🔍 VERIFICATION: Expected vs Actual:', { expected: newQuantity, actual: verifyQuantity });
-            }, 100);
-            
             const isFullyScanned = newQuantity.scanned >= newQuantity.total;
-            
             const remaining = newQuantity.total - newQuantity.scanned;
             
             // Check for similar products but don't show alert (just log for debugging)
@@ -761,6 +781,24 @@ export function InventoryCheckClient() {
       return;
     }
 
+    // Check if there are existing scan quantities and warn user
+    const hasExistingScans = productQuantities.size > 0 && 
+      Array.from(productQuantities.values()).some(qty => qty.scanned > 0);
+    
+    if (hasExistingScans) {
+      const confirmImport = window.confirm(
+        '⚠️ 注意：匯入新的Excel文件將會重置所有已掃描的產品狀態！\n\n您確定要繼續嗎？\n\n建議：如果需要保留當前掃描狀態，請先點擊「完成檢查」保存結果。'
+      );
+      
+      if (!confirmImport) {
+        // Reset file input if user cancels
+        if (event.target) {
+          event.target.value = '';
+        }
+        return;
+      }
+    }
+
     // Get current store name
     const currentStore = stores?.find(s => s._id === selectedStoreId);
     if (!currentStore) {
@@ -972,6 +1010,22 @@ export function InventoryCheckClient() {
                     // Refresh products data to include new products
                     await mutateProducts();
                     
+                    // Reset scan quantities when importing new products
+                    // This ensures fresh start for the new product list
+                    setProductQuantities(new Map());
+                    setHasCompletedCheck(false); // Reset completion status for new products
+                    
+                    // Clear localStorage for the current store since we have new products
+                    if (typeof window !== 'undefined' && selectedStoreId) {
+                      const storageKey = `productQuantities_${selectedStoreId}`;
+                      localStorage.removeItem(storageKey);
+                      console.log('🗑️ Cleared scan quantities for new import:', storageKey);
+                      
+                      // Verify removal
+                      const verifyRemoval = localStorage.getItem(storageKey);
+                      console.log('✅ Verified removal:', verifyRemoval === null ? 'Success' : 'Failed');
+                    }
+                    
                     // Log what we got after refresh
                     setTimeout(() => {
                         console.log('After mutate - storeProducts:', storeProducts);
@@ -979,9 +1033,6 @@ export function InventoryCheckClient() {
                             console.log('First product after refresh:', storeProducts[0]);
                         }
                     }, 1000);
-                    
-                    // Don't reset checked items - preserve what user has already checked
-                    // setCheckedProductIds(new Set());
                     
                 } catch (error) {
                     console.error('Error creating products:', error);
@@ -1103,57 +1154,97 @@ export function InventoryCheckClient() {
     console.log('✅ isChecking changed to:', isChecking);
   }, [isChecking]);
 
-  // Restore product quantities from localStorage when store changes and initialize from products
+  // Reset state when store changes (smart initialize will handle localStorage restore)
   useEffect(() => {
-    if (selectedStoreId && typeof window !== 'undefined') {
-      const stored = localStorage.getItem(`productQuantities_${selectedStoreId}`);
-      if (stored) {
-        try {
-          const restoredEntries = JSON.parse(stored) as [string, { scanned: number; total: number }][];
-          const restoredMap = new Map<string, { scanned: number; total: number }>(restoredEntries);
-          console.log('🔄 Restoring product quantities from localStorage:', restoredEntries);
-          
-          // Update both state and ref
-          productQuantitiesRef.current = restoredMap;
-          _setProductQuantities(restoredMap);
-        } catch (e) {
-          console.warn('Failed to parse stored product quantities:', e);
-        }
-      } else {
-        console.log('🔄 No stored quantities found for store:', selectedStoreId);
-        // Initialize empty map for new store
-        productQuantitiesRef.current = new Map();
-        _setProductQuantities(new Map());
-      }
+    if (selectedStoreId) {
+      console.log('🏪 Store changed to:', selectedStoreId);
+      // Reset completion status when switching stores
+      setHasCompletedCheck(false);
+      
+      // Don't reset productQuantities here - let smart initialize handle it
+      // This prevents race condition between restore and initialize
+    } else {
+      console.log('🔄 No store selected, clearing quantities');
+      productQuantitiesRef.current = new Map();
+      _setProductQuantities(new Map());
+      setHasCompletedCheck(false);
     }
   }, [selectedStoreId]);
 
-  // Initialize product quantities when storeProducts change
+  // Initialize product quantities when storeProducts change - but preserve localStorage data
   useEffect(() => {
-    if (storeProducts && storeProducts.length > 0) {
-      console.log('🔄 Initializing product quantities for', storeProducts.length, 'products');
+    if (storeProducts && storeProducts.length > 0 && selectedStoreId) {
+      console.log('🔄 Smart initializing product quantities for', storeProducts.length, 'products');
+      
+      // Check if we have localStorage data first
+      const stored = localStorage.getItem(`productQuantities_${selectedStoreId}`);
+      let hasStoredData = false;
+      let storedMap = new Map<string, { scanned: number; total: number }>();
+      
+      if (stored) {
+        try {
+          const restoredEntries = JSON.parse(stored) as [string, { scanned: number; total: number }][];
+          storedMap = new Map(restoredEntries);
+          hasStoredData = storedMap.size > 0;
+          console.log('📱 Found localStorage data:', hasStoredData, 'items:', storedMap.size);
+        } catch (e) {
+          console.warn('Failed to parse stored data during initialize:', e);
+        }
+      }
       
       setProductQuantities(prev => {
-        const newMap = new Map(prev);
+        // If we have stored data, prioritize it
+        const baseMap = hasStoredData ? storedMap : prev;
+        const newMap = new Map(baseMap);
         
-        // Initialize any new products that don't have quantities yet
+        console.log('🏗️ Base map size:', baseMap.size, 'Has stored data:', hasStoredData);
+        
+        // Only add missing products, don't override existing data
         storeProducts.forEach(product => {
           if (!newMap.has(product._id!)) {
-            const total = Math.max(product.computerInventory || 20, 1); // Use 20 as default if computerInventory is 0 or null
+            const total = Math.max(product.computerInventory || 20, 1);
             const quantity = { scanned: 0, total };
             
-            console.log(`📦 Initializing ${product.name} with quantity:`, quantity, `(computerInventory: ${product.computerInventory})`);
+            console.log(`📦 Adding new product ${product.name} with quantity:`, quantity, `(computerInventory: ${product.computerInventory})`);
             newMap.set(product._id!, quantity);
           } else {
-            console.log(`✅ ${product.name} already has quantity:`, newMap.get(product._id!));
+            const existingQuantity = newMap.get(product._id!);
+            console.log(`✅ ${product.name} already has quantity:`, existingQuantity);
+            
+            // Update total quantity if product computerInventory changed but keep scanned count
+            const newTotal = Math.max(product.computerInventory || 20, 1);
+            if (existingQuantity && existingQuantity.total !== newTotal) {
+              console.log(`🔄 Updating total for ${product.name} from ${existingQuantity.total} to ${newTotal}`);
+              newMap.set(product._id!, {
+                scanned: Math.min(existingQuantity.scanned, newTotal), // Don't exceed new total
+                total: newTotal
+              });
+            }
           }
         });
         
-        console.log('📊 Total quantities initialized:', newMap.size);
+        // Update ref to match
+        productQuantitiesRef.current = newMap;
+        
+        console.log('📊 Total quantities after smart initialize:', newMap.size);
+        console.log('💾 Sample quantities:', Array.from(newMap.entries()).slice(0, 3));
+        
+        // Show notification if we restored data from localStorage
+        if (hasStoredData) {
+          const scannedCount = Array.from(storedMap.values()).reduce((sum, qty) => sum + qty.scanned, 0);
+          const totalItems = Array.from(storedMap.values()).reduce((sum, qty) => sum + qty.total, 0);
+          
+          toast({
+            title: "數據已恢復 ✅",
+            description: `從上次檢查恢復了 ${storedMap.size} 個產品的掃描進度\n已掃描: ${scannedCount}/${totalItems} 個`,
+            duration: 4000,
+          });
+        }
+        
         return newMap;
       });
     }
-  }, [storeProducts]);
+  }, [storeProducts, selectedStoreId]);
 
   // Auto-start camera when scanner opens
   useEffect(() => {
@@ -1615,6 +1706,113 @@ export function InventoryCheckClient() {
     setShowBarcodeDialog(true);
   };
 
+  const handleDownloadBarcode = (product: Product) => {
+    // First show the barcode dialog to generate the SVG
+    setSelectedBarcodeProduct(product);
+    setShowBarcodeDialog(true);
+    
+    // Wait a bit for dialog to render, then capture and download
+    setTimeout(() => {
+      try {
+        // Find the barcode SVG in the dialog
+        const dialogContent = document.querySelector('[role="dialog"]');
+        const svgElement = dialogContent?.querySelector('svg');
+        
+        if (!svgElement) {
+          throw new Error('Barcode SVG not found in dialog');
+        }
+
+        // Create canvas for download image
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas context not available');
+
+        // Set canvas size
+        canvas.width = 400;
+        canvas.height = 200;
+
+        // Fill white background
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw product info
+        ctx.fillStyle = '#000000';
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 16px Arial';
+        
+        // Product name
+        ctx.fillText(product.name, canvas.width / 2, 30);
+        
+        // Category and brand info
+        ctx.font = '12px Arial';
+        ctx.fillText(`類別: ${product.category}`, canvas.width / 2, 50);
+        ctx.fillText(`廠牌: ${product.brand || 'Apple'}`, canvas.width / 2, 70);
+
+        // Convert SVG to image and draw on canvas
+        const svgData = new XMLSerializer().serializeToString(svgElement);
+        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+        const svgUrl = URL.createObjectURL(svgBlob);
+
+        const img = new Image();
+        img.onload = () => {
+          // Calculate centered position for barcode
+          const scale = Math.min(300 / img.width, 80 / img.height); // Scale to fit within 300x80
+          const scaledWidth = img.width * scale;
+          const scaledHeight = img.height * scale;
+          const barcodeX = (canvas.width - scaledWidth) / 2;
+          const barcodeY = 90;
+          
+          // Draw barcode
+          ctx.drawImage(img, barcodeX, barcodeY, scaledWidth, scaledHeight);
+
+          // Clean up SVG URL
+          URL.revokeObjectURL(svgUrl);
+
+          // Convert canvas to blob and download
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `barcode-${product.barcode}-${product.name.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '_')}.png`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+
+              toast({
+                title: "條碼已下載",
+                description: `${product.name} 的條碼圖片已保存`,
+                duration: 2000,
+              });
+              
+              // Close the dialog after download
+              setShowBarcodeDialog(false);
+            }
+          }, 'image/png');
+        };
+
+        img.onerror = () => {
+          URL.revokeObjectURL(svgUrl);
+          throw new Error('Failed to load barcode SVG as image');
+        };
+
+        img.src = svgUrl;
+
+      } catch (error) {
+        console.error('Error generating barcode download:', error);
+        toast({
+          variant: "destructive",
+          title: "下載失敗",
+          description: "無法生成條碼圖片，請稍後再試",
+          duration: 3000,
+        });
+        // Close dialog on error
+        setShowBarcodeDialog(false);
+      }
+    }, 500); // Wait for dialog to fully render
+  };
+
   // Debounced restart function
   const restartAutoScanning = () => {
     // Clear any pending restart
@@ -1631,7 +1829,7 @@ export function InventoryCheckClient() {
       scanIntervalRef.current = null;
     }
     
-    // Restart after delay
+    // Restart after delay (longer delay to prevent rapid consecutive scans)
     restartTimeoutRef.current = setTimeout(() => {
       if (!isProcessingRef.current) {
         console.log('🔄 Restarting auto-scanning...');
@@ -1640,13 +1838,14 @@ export function InventoryCheckClient() {
         
         toast({
           title: "準備下一次掃描",
-          duration: 1000,
+          description: "請更換條碼後再次掃描",
+          duration: 1500,
         });
         
         startBarcodeDetection();
       }
       restartTimeoutRef.current = null;
-    }, 1000);
+    }, 2500);
   };
 
 
@@ -1655,13 +1854,18 @@ export function InventoryCheckClient() {
     console.log('🏪 handleStoreChange called with storeId:', storeId);
     console.log('🏪 Current selectedStoreId:', selectedStoreId);
     console.log('🏪 Current isChecking:', isChecking);
+    console.log('🏪 Current hasCompletedCheck:', hasCompletedCheck);
     console.log('🏪 Current product quantities:', productQuantities.size);
     
-    if (isChecking && storeId !== selectedStoreId) {
+    // Allow store change if:
+    // 1. Not currently checking, OR
+    // 2. Same store selected, OR  
+    // 3. Has completed at least one check (data is saved)
+    if (isChecking && storeId !== selectedStoreId && !hasCompletedCheck) {
         toast({
             variant: "destructive",
             title: "無法變更商店",
-            description: "請先完成或取消目前的庫存檢查。",
+            description: "請先完成檢查或點擊「結束檢查」才能切換商店。",
         });
         return;
     }
@@ -1670,14 +1874,16 @@ export function InventoryCheckClient() {
     if (storeId) {
         // Only reset quantities if switching to a different store
         if (storeId !== selectedStoreId) {
-          console.log('🏪 Different store selected, resetting quantities');
+          console.log('🏪 Different store selected, resetting quantities and flags');
           setProductQuantities(new Map());
+          setHasCompletedCheck(false); // Reset completion status for new store
         } else {
           console.log('🏪 Same store, keeping existing quantities');
         }
         setIsChecking(true);
     } else {
         setIsChecking(false);
+        setHasCompletedCheck(false);
     }
   };
 
@@ -1696,6 +1902,387 @@ export function InventoryCheckClient() {
       return newMap;
     });
   };
+
+
+
+  const handleEndCheck = () => {
+    // End checking mode directly without confirmation
+    setIsChecking(false);
+    setSelectedStoreId("");
+    setProductQuantities(new Map());
+    setHasCompletedCheck(false);
+    
+    // Clear localStorage
+    if (typeof window !== 'undefined' && selectedStoreId) {
+      const storageKey = `productQuantities_${selectedStoreId}`;
+      localStorage.removeItem(storageKey);
+      console.log('🗑️ Cleared localStorage on end check:', storageKey);
+      
+      // Verify removal
+      const verifyRemoval = localStorage.getItem(storageKey);
+      console.log('✅ Verified removal:', verifyRemoval === null ? 'Success' : 'Failed');
+    }
+    
+    toast({
+      title: "檢查已結束",
+      description: "已退出檢查模式，現在可以選擇其他商店",
+      duration: 2000,
+    });
+  };
+
+  const handleQuantitySubmit = () => {
+    if (!quantityInputProduct) return;
+    
+    const inputQuantity = parseInt(quantityInput);
+    const currentQuantity = productQuantities.get(quantityInputProduct._id!) || { 
+      scanned: 0, 
+      total: quantityInputProduct.computerInventory || 1 
+    };
+    
+    // Validation
+    if (isNaN(inputQuantity) || inputQuantity <= 0) {
+      toast({
+        variant: "destructive",
+        title: "輸入錯誤",
+        description: "請輸入有效的數量 (大於0)",
+      });
+      return;
+    }
+    
+    if (inputQuantity > (currentQuantity.total - currentQuantity.scanned)) {
+      toast({
+        variant: "destructive",
+        title: "數量超出限制",
+        description: `最多只能掃描 ${currentQuantity.total - currentQuantity.scanned} 個`,
+      });
+      return;
+    }
+    
+    // Update quantity
+    const newQuantity = {
+      scanned: currentQuantity.scanned + inputQuantity,
+      total: currentQuantity.total
+    };
+    
+    // Update ref immediately to prevent race conditions
+    productQuantitiesRef.current.set(quantityInputProduct._id!, newQuantity);
+    
+    // Update state for UI re-render
+    setProductQuantities(prev => {
+      const newMap = new Map(prev);
+      newMap.set(quantityInputProduct._id!, newQuantity);
+      return newMap;
+    });
+    
+    const isFullyScanned = newQuantity.scanned >= newQuantity.total;
+    const remaining = newQuantity.total - newQuantity.scanned;
+    
+    toast({
+      title: isFullyScanned ? "掃描完成 ✅" : "數量已更新 ✅",
+      description: `🏷️ 產品: ${quantityInputProduct.name}\n📊 本次掃描: ${inputQuantity} 個\n📊 總計掃描: ${newQuantity.scanned}/${newQuantity.total}\n🎯 還需掃描: ${remaining} 個${isFullyScanned ? '\n🎉 全部完成!' : ''}`,
+      duration: 4000,
+    });
+    
+    // Close dialog and reset
+    setShowQuantityDialog(false);
+    setQuantityInputProduct(null);
+    setQuantityInput("");
+    
+    // Highlight the updated product in table
+    setTimeout(() => {
+      const productElements = document.querySelectorAll(`[data-product-id="${quantityInputProduct._id}"]`);
+      if (productElements.length > 0) {
+        const element = productElements[0] as HTMLElement;
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Flash highlight effect
+        element.style.transition = 'all 0.3s ease';
+        element.style.backgroundColor = '#22c55e';
+        element.style.transform = 'scale(1.02)';
+        
+        setTimeout(() => {
+          element.style.backgroundColor = '';
+          element.style.transform = '';
+        }, 1000);
+      }
+    }, 500);
+    
+    // Restart scanning after a short delay
+    setTimeout(() => {
+      if (isScannerOpen && !isScanning) {
+        startAutoScanning();
+      }
+    }, 1000);
+  };
+
+  const handleQuantityCancel = () => {
+    setShowQuantityDialog(false);
+    setQuantityInputProduct(null);
+    setQuantityInput("");
+    
+    // Restart scanning after cancellation
+    setTimeout(() => {
+      if (isScannerOpen && !isScanning) {
+        startAutoScanning();
+      }
+    }, 500);
+  };
+
+  const handleManualInput = () => {
+    if (!storeProducts) {
+      toast({
+        variant: "destructive",
+        title: "錯誤",
+        description: "尚未載入產品資料",
+      });
+      return;
+    }
+
+    const searchTerm = manualBarcode.trim();
+    const quantity = parseInt(manualQuantity);
+
+    // Validation
+    if (!searchTerm) {
+      toast({
+        variant: "destructive",
+        title: "輸入錯誤",
+        description: "請輸入產品條碼或名稱",
+      });
+      return;
+    }
+
+    if (isNaN(quantity) || quantity <= 0) {
+      toast({
+        variant: "destructive",
+        title: "輸入錯誤",
+        description: "請輸入有效的數量 (大於0)",
+      });
+      return;
+    }
+
+    // Find product by barcode or name
+    const searchQuery = searchTerm.toLowerCase();
+    const product = storeProducts.find(p => {
+      const nameMatch = p.name.toLowerCase().includes(searchQuery);
+      const barcodeMatch = p.barcode?.toLowerCase() === searchQuery || p.barcode === searchTerm;
+      return barcodeMatch || (nameMatch && p.name.toLowerCase() === searchQuery);
+    }) || storeProducts.find(p => {
+      const nameMatch = p.name.toLowerCase().includes(searchQuery);
+      const barcodeMatch = p.barcode?.toLowerCase().includes(searchQuery);
+      return nameMatch || barcodeMatch;
+    });
+
+    if (!product) {
+      toast({
+        variant: "destructive",
+        title: "找不到產品",
+        description: `沒有找到匹配 "${searchTerm}" 的產品，請從建議列表中選擇`,
+      });
+      return;
+    }
+
+    // Get current quantity
+    const currentQuantity = productQuantities.get(product._id!) || { 
+      scanned: 0, 
+      total: product.computerInventory || 1 
+    };
+
+    // Check if quantity exceeds limit
+    if (quantity > (currentQuantity.total - currentQuantity.scanned)) {
+      toast({
+        variant: "destructive",
+        title: "數量超出限制",
+        description: `最多只能掃描 ${currentQuantity.total - currentQuantity.scanned} 個`,
+      });
+      return;
+    }
+
+    // Update quantity
+    const newQuantity = {
+      scanned: currentQuantity.scanned + quantity,
+      total: currentQuantity.total
+    };
+
+    // Update ref immediately
+    productQuantitiesRef.current.set(product._id!, newQuantity);
+
+    // Update state for UI re-render
+    setProductQuantities(prev => {
+      const newMap = new Map(prev);
+      newMap.set(product._id!, newQuantity);
+      return newMap;
+    });
+
+    const isFullyScanned = newQuantity.scanned >= newQuantity.total;
+    const remaining = newQuantity.total - newQuantity.scanned;
+
+    toast({
+      title: isFullyScanned ? "手動輸入完成 ✅" : "手動輸入成功 ✅",
+      description: `🏷️ 產品: ${product.name}\n📊 本次輸入: ${quantity} 個\n📊 總計掃描: ${newQuantity.scanned}/${newQuantity.total}\n🎯 還需掃描: ${remaining} 個${isFullyScanned ? '\n🎉 全部完成!' : ''}`,
+      duration: 4000,
+    });
+
+    // Close dialog and reset
+    setShowManualInputDialog(false);
+    setManualBarcode("");
+    setManualQuantity("1");
+
+    // Highlight the updated product in table
+    setTimeout(() => {
+      const productElements = document.querySelectorAll(`[data-product-id="${product._id}"]`);
+      if (productElements.length > 0) {
+        const element = productElements[0] as HTMLElement;
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Flash highlight effect
+        element.style.transition = 'all 0.3s ease';
+        element.style.backgroundColor = '#3b82f6'; // blue color for manual input
+        element.style.transform = 'scale(1.02)';
+        
+        setTimeout(() => {
+          element.style.backgroundColor = '';
+          element.style.transform = '';
+        }, 1000);
+      }
+    }, 500);
+  };
+
+  const handleManualInputCancel = () => {
+    setShowManualInputDialog(false);
+    setManualBarcode("");
+    setManualQuantity("1");
+    setProductSuggestions([]);
+    setShowSuggestions(false);
+    setSelectedSuggestionIndex(-1);
+  };
+
+  const searchProducts = (query: string) => {
+    if (!storeProducts) {
+      setProductSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    const searchQuery = query.toLowerCase().trim();
+    
+    // If no query, show all products
+    const filtered = searchQuery.length === 0 
+      ? storeProducts 
+      : storeProducts.filter(product => {
+          const nameMatch = product.name.toLowerCase().includes(searchQuery);
+          const barcodeMatch = product.barcode?.toLowerCase().includes(searchQuery);
+          const categoryMatch = product.category?.toLowerCase().includes(searchQuery);
+          const brandMatch = product.brand?.toLowerCase().includes(searchQuery);
+          
+          return nameMatch || barcodeMatch || categoryMatch || brandMatch;
+        });
+
+    // Sort results: exact matches first, then partial matches
+    const sorted = filtered.sort((a, b) => {
+      const aExact = a.name.toLowerCase() === searchQuery || a.barcode?.toLowerCase() === searchQuery;
+      const bExact = b.name.toLowerCase() === searchQuery || b.barcode?.toLowerCase() === searchQuery;
+      
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+      
+      // Then sort by name
+      return a.name.localeCompare(b.name);
+    });
+
+    setProductSuggestions(sorted);
+    setShowSuggestions(sorted.length > 0);
+    setSelectedSuggestionIndex(-1);
+  };
+
+  const handleBarcodeInputChange = (value: string) => {
+    setManualBarcode(value);
+    searchProducts(value);
+  };
+
+  const handleSuggestionSelect = (product: Product) => {
+    setManualBarcode(product.barcode || '');
+    setShowSuggestions(false);
+    setProductSuggestions([]);
+    setSelectedSuggestionIndex(-1);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!showSuggestions || productSuggestions.length === 0) {
+      if (e.key === 'Enter') {
+        handleManualInput();
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setSelectedSuggestionIndex(prev => 
+          prev < productSuggestions.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setSelectedSuggestionIndex(prev => 
+          prev > 0 ? prev - 1 : productSuggestions.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (selectedSuggestionIndex >= 0) {
+          handleSuggestionSelect(productSuggestions[selectedSuggestionIndex]);
+        } else {
+          handleManualInput();
+        }
+        break;
+      case 'Escape':
+        setShowSuggestions(false);
+        setSelectedSuggestionIndex(-1);
+        break;
+    }
+  };
+
+  // Debug function to check localStorage manually
+  const debugLocalStorage = () => {
+    if (!selectedStoreId) {
+      console.log('🚫 No store selected');
+      return;
+    }
+    
+    const storageKey = `productQuantities_${selectedStoreId}`;
+    const stored = localStorage.getItem(storageKey);
+    
+    console.log('🔍 DEBUG localStorage:');
+    console.log('📍 Store ID:', selectedStoreId);
+    console.log('🔑 Storage Key:', storageKey);
+    console.log('💾 Stored Data:', stored);
+    console.log('📊 Current productQuantities size:', productQuantities.size);
+    console.log('🧠 Current ref size:', productQuantitiesRef.current.size);
+    
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        console.log('✅ Parsed successfully:', parsed.length, 'items');
+        console.log('📋 Sample items:', parsed.slice(0, 3));
+      } catch (e) {
+        console.error('❌ Parse error:', e);
+      }
+    } else {
+      console.log('❌ No data found in localStorage');
+    }
+    
+    // Also log all localStorage keys related to this app
+    const allKeys = Object.keys(localStorage).filter(key => key.startsWith('productQuantities_'));
+    console.log('🗂️ All productQuantities keys:', allKeys);
+  };
+
+  // Add debug function to window for manual testing
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      (window as any).debugInventoryStorage = debugLocalStorage;
+      console.log('🛠️ Debug function available: window.debugInventoryStorage()');
+    }
+  }, [selectedStoreId, productQuantities]);
   
   const categories = useMemo(() => {
     if (!storeProducts) return [];
@@ -1772,14 +2359,13 @@ export function InventoryCheckClient() {
             description: `狀態: ${result.status === 'Completed' ? '完成' : '短缺'}。結果已保存到歷史記錄。`,
         });
 
-        // Reset state and clear localStorage
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem(`productQuantities_${selectedStoreId}`);
-          console.log('🗑️ Cleared localStorage for completed check');
-        }
-        setSelectedStoreId("");
-        setProductQuantities(new Map());
-        setIsChecking(false);
+        // Mark as completed - this allows user to switch stores
+        setHasCompletedCheck(true);
+        
+        // Keep the current state - don't reset after completing check
+        // Users can continue scanning or start a new check
+        // localStorage is kept so users can resume if they refresh
+        console.log('✅ Check completed successfully, keeping current state for continued use');
 
     } catch (error: any) {
         toast({ variant: "destructive", title: "錯誤", description: error.message });
@@ -1828,6 +2414,21 @@ export function InventoryCheckClient() {
       getCameraInfo();
     }
   }, [cameraStream]);
+
+  // Close suggestions when dialog is closed, or show all products when opened
+  useEffect(() => {
+    if (!showManualInputDialog) {
+      setShowSuggestions(false);
+      setProductSuggestions([]);
+      setSelectedSuggestionIndex(-1);
+    } else if (showManualInputDialog && storeProducts && storeProducts.length > 0) {
+      // Show all products when dialog opens
+      const sorted = storeProducts.sort((a, b) => a.name.localeCompare(b.name));
+      setProductSuggestions(sorted);
+      setShowSuggestions(true);
+      setSelectedSuggestionIndex(-1);
+    }
+  }, [showManualInputDialog, storeProducts]);
 
   if (!user || storesLoading) return <Skeleton className="w-full h-96" />;
 
@@ -1879,6 +2480,40 @@ export function InventoryCheckClient() {
                     <span className="hidden sm:inline">{isInitializingCamera ? "啟動相機中..." : "掃描條碼"}</span>
                     <span className="sm:hidden">{isInitializingCamera ? "啟動" : "掃描"}</span>
                 </Button>
+                <Button 
+                    onClick={() => setShowManualInputDialog(true)} 
+                    disabled={!isChecking}
+                    size="sm"
+                    variant="outline"
+                    className="text-xs sm:text-sm h-8 sm:h-9"
+                >
+                    <Edit3 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                    <span className="hidden sm:inline">手動輸入</span>
+                    <span className="sm:hidden">輸入</span>
+                </Button>
+                {isChecking && (
+                    <>
+                        <Button 
+                            onClick={completeCheck}
+                            size="sm"
+                            className="text-xs sm:text-sm h-8 sm:h-9 bg-green-600 hover:bg-green-700"
+                        >
+                            <CheckCircle2 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                            <span className="hidden sm:inline">完成檢查</span>
+                            <span className="sm:hidden">完成</span>
+                        </Button>
+                        {/* <Button 
+                            onClick={handleEndCheck}
+                            size="sm"
+                            variant="outline"
+                            className="text-xs sm:text-sm h-8 sm:h-9 text-red-600 border-red-300 hover:bg-red-50"
+                        >
+                            <X className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                            <span className="hidden sm:inline">結束檢查</span>
+                            <span className="sm:hidden">結束</span>
+                        </Button> */}
+                    </>
+                )}
             </div>
         </div>
       </CardHeader>
@@ -2126,18 +2761,30 @@ export function InventoryCheckClient() {
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className="flex items-center gap-2 whitespace-nowrap">
+                                        <div className="flex items-center gap-1 whitespace-nowrap">
                                             <span className="text-xs font-mono text-muted-foreground">
                                                 {product.barcode}
                                             </span>
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                onClick={() => handleShowBarcode(product)}
-                                                className="px-1 py-1 h-6 w-6 flex-shrink-0"
-                                            >
-                                                <Eye className="h-3 w-3" />
-                                            </Button>
+                                            <div className="flex gap-1">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => handleShowBarcode(product)}
+                                                    className="px-1 py-1 h-6 w-6 flex-shrink-0"
+                                                    title="查看條碼"
+                                                >
+                                                    <Eye className="h-3 w-3" />
+                                                </Button>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => handleDownloadBarcode(product)}
+                                                    className="px-1 py-1 h-6 w-6 flex-shrink-0"
+                                                    title="下載條碼"
+                                                >
+                                                    <Download className="h-3 w-3" />
+                                                </Button>
+                                            </div>
                                         </div>
                                     </TableCell>
                                     <TableCell>
@@ -2187,21 +2834,20 @@ export function InventoryCheckClient() {
       </CardContent>
       {isChecking && (
         <CardFooter className="border-t px-6 py-4">
-            <div className="flex w-full items-center justify-between">
+            <div className="flex w-full items-center justify-center">
                 <TooltipProvider>
                 <Tooltip>
                     <TooltipTrigger asChild>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    {/* <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Bot className="h-5 w-5 text-primary" />
                         <span>AI 助手已啟用</span>
-                    </div>
+                    </div> */}
                     </TooltipTrigger>
                     <TooltipContent>
                     <p>我們的AI將根據過往記錄交叉比對檢查結果，發現潛在差異。</p>
                     </TooltipContent>
                 </Tooltip>
                 </TooltipProvider>
-                <Button onClick={completeCheck}>完成檢查</Button>
             </div>
         </CardFooter>
       )}
@@ -2525,6 +3171,284 @@ export function InventoryCheckClient() {
                         )}
                     </div>
                 )}
+            </div>
+        </DialogContent>
+    </Dialog>
+
+    {/* Quantity Input Dialog */}
+    <Dialog open={showQuantityDialog} onOpenChange={(open) => {
+      if (!open) {
+        handleQuantityCancel();
+      }
+    }}>
+        <DialogContent className="sm:max-w-md max-w-[90vw]">
+            <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                    輸入掃描數量
+                </DialogTitle>
+                <DialogDescription>
+                    {quantityInputProduct && (
+                        <div className="space-y-1 text-sm">
+                            <div><strong>產品名稱:</strong> {quantityInputProduct.name}</div>
+                            <div><strong>條碼:</strong> {quantityInputProduct.barcode}</div>
+                            <div><strong>庫存總數:</strong> {quantityInputProduct.computerInventory || 0} 個</div>
+                            {(() => {
+                              const currentQuantity = productQuantities.get(quantityInputProduct._id!) || { 
+                                scanned: 0, 
+                                total: quantityInputProduct.computerInventory || 1 
+                              };
+                              return (
+                                <div><strong>還需掃描:</strong> {currentQuantity.total - currentQuantity.scanned} 個</div>
+                              );
+                            })()}
+                        </div>
+                    )}
+                </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4">
+                <div className="space-y-2">
+                    <Label htmlFor="quantity-input">
+                        請輸入本次實際掃描的數量:
+                    </Label>
+                    <Input
+                        id="quantity-input"
+                        type="number"
+                        min="1"
+                        max={quantityInputProduct ? (() => {
+                          const currentQuantity = productQuantities.get(quantityInputProduct._id!) || { 
+                            scanned: 0, 
+                            total: quantityInputProduct.computerInventory || 1 
+                          };
+                          return currentQuantity.total - currentQuantity.scanned;
+                        })() : 1}
+                        value={quantityInput}
+                        onChange={(e) => setQuantityInput(e.target.value)}
+                        placeholder="輸入數量"
+                        className="text-center text-lg font-semibold"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleQuantitySubmit();
+                          }
+                        }}
+                    />
+                    <div className="text-xs text-muted-foreground text-center">
+                        {quantityInputProduct && (() => {
+                          const currentQuantity = productQuantities.get(quantityInputProduct._id!) || { 
+                            scanned: 0, 
+                            total: quantityInputProduct.computerInventory || 1 
+                          };
+                          return `範圍: 1 - ${currentQuantity.total - currentQuantity.scanned}`;
+                        })()}
+                    </div>
+                </div>
+                
+                <div className="flex gap-2">
+                    <Button 
+                        variant="outline"
+                        onClick={handleQuantityCancel}
+                        className="flex-1"
+                    >
+                        取消
+                    </Button>
+                    <Button 
+                        onClick={handleQuantitySubmit}
+                        className="flex-1 bg-green-600 hover:bg-green-700"
+                    >
+                        確認
+                    </Button>
+                </div>
+                
+                <div className="text-xs text-blue-600 bg-blue-50 p-3 rounded border">
+                    💡 <strong>提示:</strong> 輸入數量後，系統會自動更新掃描進度，然後您可以繼續掃描其他產品或同一產品的剩餘數量。
+                </div>
+            </div>
+        </DialogContent>
+    </Dialog>
+
+    {/* Manual Input Dialog */}
+    <Dialog open={showManualInputDialog} onOpenChange={(open) => {
+      if (!open) {
+        handleManualInputCancel();
+      }
+    }}>
+        <DialogContent className="sm:max-w-md max-w-[90vw]">
+                         <DialogHeader>
+                 <DialogTitle className="flex items-center gap-2">
+                     <Edit3 className="h-5 w-5 text-blue-600" />
+                     手動輸入條碼和數量
+                 </DialogTitle>
+                                 <DialogDescription>
+                     當無法掃描條碼時，可以搜尋並選擇產品，然後輸入數量
+                 </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-4">
+                                 <div className="space-y-2">
+                     <Label htmlFor="manual-barcode">
+                         產品條碼或名稱:
+                     </Label>
+                     <div className="relative">
+                         <Input
+                             id="manual-barcode"
+                             type="text"
+                             value={manualBarcode}
+                             onChange={(e) => handleBarcodeInputChange(e.target.value)}
+                             onKeyDown={handleKeyDown}
+                             onBlur={() => {
+                                 // Delay hiding suggestions to allow click on suggestion
+                                 setTimeout(() => {
+                                     setShowSuggestions(false);
+                                     setSelectedSuggestionIndex(-1);
+                                 }, 150);
+                             }}
+                             placeholder="搜尋條碼、產品名稱、類別或廠牌 (留空顯示全部)..."
+                             className="font-mono"
+                             autoFocus
+                             autoComplete="off"
+                         />
+                         
+                         {/* Suggestions Dropdown */}
+                         {showSuggestions && productSuggestions.length > 0 && (
+                             <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-80 overflow-y-auto">
+                                 {productSuggestions.map((product, index) => {
+                                     const currentQuantity = productQuantities.get(product._id!) || { 
+                                         scanned: 0, 
+                                         total: product.computerInventory || 1 
+                                     };
+                                     const isCompleted = currentQuantity.scanned >= currentQuantity.total;
+                                     const CategoryIcon = categoryIcons[product.category] || categoryIcons.Default;
+                                     
+                                     return (
+                                         <div
+                                             key={product._id}
+                                             className={`p-3 cursor-pointer border-b border-gray-100 last:border-b-0 hover:bg-blue-50 ${
+                                                 index === selectedSuggestionIndex ? 'bg-blue-100' : ''
+                                             } ${isCompleted ? 'bg-green-50' : ''}`}
+                                             onClick={() => handleSuggestionSelect(product)}
+                                         >
+                                             <div className="flex items-center justify-between">
+                                                 <div className="flex-1 min-w-0">
+                                                     <div className="flex items-center gap-2 mb-1">
+                                                         <CategoryIcon className="h-4 w-4 text-gray-500 flex-shrink-0" />
+                                                         <span className="text-sm font-medium truncate">
+                                                             {product.name}
+                                                         </span>
+                                                         {isCompleted && (
+                                                             <CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0" />
+                                                         )}
+                                                     </div>
+                                                     <div className="flex items-center gap-2 text-xs text-gray-500">
+                                                         <span className="font-mono bg-gray-100 px-2 py-0.5 rounded">
+                                                             {product.barcode}
+                                                         </span>
+                                                         <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded">
+                                                             {product.category}
+                                                         </span>
+                                                         {product.brand && (
+                                                             <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded">
+                                                                 {product.brand}
+                                                             </span>
+                                                         )}
+                                                     </div>
+                                                 </div>
+                                                 <div className="flex-shrink-0 ml-2">
+                                                     <div className="text-right">
+                                                         <div className={`text-xs font-medium ${isCompleted ? 'text-green-600' : 'text-blue-600'}`}>
+                                                             {currentQuantity.scanned}/{currentQuantity.total}
+                                                             {isCompleted && " ✅"}
+                                                         </div>
+                                                         <div className="text-xs text-gray-500">
+                                                             庫存: {product.computerInventory || 0}
+                                                         </div>
+                                                         {!isCompleted && currentQuantity.scanned > 0 && (
+                                                             <div className="text-xs text-orange-600">
+                                                                 還需: {currentQuantity.total - currentQuantity.scanned}
+                                                             </div>
+                                                         )}
+                                                     </div>
+                                                 </div>
+                                             </div>
+                                         </div>
+                                     );
+                                 })}
+                                 
+                                 {/* Navigation hint */}
+                                 <div className="p-2 bg-gray-50 border-t text-xs text-gray-500 text-center">
+                                     <div className="mb-1">
+                                         找到 {productSuggestions.length} 個產品
+                                         {productSuggestions.length > 10 && <span className="ml-1">(可滾動查看更多)</span>}
+                                     </div>
+                                     <div>↑↓ 選擇 • Enter 確認 • Esc 關閉</div>
+                                 </div>
+                             </div>
+                         )}
+                         
+                         {/* No results message */}
+                         {showSuggestions && productSuggestions.length === 0 && manualBarcode.length > 0 && (
+                             <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg p-3">
+                                 <div className="text-sm text-gray-500 text-center">
+                                     找不到匹配的產品
+                                 </div>
+                             </div>
+                         )}
+                     </div>
+                 </div>
+                
+                <div className="space-y-2">
+                    <Label htmlFor="manual-quantity">
+                        檢查數量:
+                    </Label>
+                    <Input
+                        id="manual-quantity"
+                        type="number"
+                        min="1"
+                        value={manualQuantity}
+                        onChange={(e) => setManualQuantity(e.target.value)}
+                        placeholder="輸入數量"
+                        className="text-center text-lg font-semibold"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleManualInput();
+                          }
+                        }}
+                    />
+                    <div className="text-xs text-muted-foreground text-center">
+                        預設為 1，可根據實際檢查數量調整
+                    </div>
+                </div>
+                
+                <div className="flex gap-2">
+                    <Button 
+                        variant="outline"
+                        onClick={handleManualInputCancel}
+                        className="flex-1"
+                    >
+                        取消
+                    </Button>
+                    <Button 
+                        onClick={handleManualInput}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700"
+                    >
+                        確認輸入
+                    </Button>
+                </div>
+                
+                                 <div className="text-xs text-orange-600 bg-orange-50 p-3 rounded border">
+                     ⚠️ <strong>注意:</strong> 請確保選擇的產品正確無誤，數量不能超過剩餘未檢查數量。
+                 </div>
+                 
+                 <div className="text-xs text-blue-600 bg-blue-50 p-3 rounded border">
+                     💡 <strong>搜尋提示:</strong>
+                     <br />• 可以搜尋產品名稱、條碼、類別或廠牌
+                     <br />• 留空搜尋框會顯示所有產品
+                     <br />• 輸入時會自動顯示匹配的產品建議
+                     <br />• 使用 ↑↓ 鍵選擇，Enter 確認，Esc 關閉建議
+                     <br />• 綠色背景表示已完成檢查的產品
+                     <br />• 可以多次輸入同一產品的不同數量
+                 </div>
             </div>
         </DialogContent>
     </Dialog>

@@ -26,6 +26,8 @@ async function handler(req: NextRequest) {
             const storeId = searchParams.get('storeId');
             const startDate = searchParams.get('startDate');
             const endDate = searchParams.get('endDate');
+            const page = parseInt(searchParams.get('page') || '1');
+            const limit = parseInt(searchParams.get('limit') || '10');
 
             let query: any = {};
             
@@ -53,14 +55,36 @@ async function handler(req: NextRequest) {
                 }
             }
 
+            // Get total count for pagination
+            const total = await InventoryCheckModel.countDocuments(query);
+            
+            // Calculate pagination
+            const totalPages = Math.ceil(total / limit);
+            const skip = (page - 1) * limit;
+            const hasNext = page < totalPages;
+            const hasPrev = page > 1;
+
             const checks = await InventoryCheckModel.find(query)
                 .populate('missingItems')
                 .populate('checkedItems')
                 .sort({ date: -1 })
+                .skip(skip)
+                .limit(limit)
                 .lean();
 
             const sanitizedChecks = JSON.parse(JSON.stringify(checks));
-            return NextResponse.json(sanitizedChecks);
+            
+            // Return paginated response
+            const response = {
+                checks: sanitizedChecks,
+                total,
+                totalPages,
+                currentPage: page,
+                hasNext,
+                hasPrev
+            };
+            
+            return NextResponse.json(response);
 
         } catch (error) {
             console.error(error);

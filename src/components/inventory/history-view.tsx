@@ -10,11 +10,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
-import { AlertCircle, CheckCircle2, Eye, Calendar, Filter } from "lucide-react"
+import { AlertCircle, CheckCircle2, Eye, Calendar, Filter, ChevronLeft, ChevronRight } from "lucide-react"
 import { MissingItemsDialog } from "./missing-items-dialog"
 import { Skeleton } from "../ui/skeleton";
 
 const fetcher = (url: string) => fetch(url).then(res => res.json());
+
+interface PaginatedInventoryResponse {
+  checks: InventoryCheck[];
+  total: number;
+  totalPages: number;
+  currentPage: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
 
 export function HistoryView() {
   const { user } = useAuth()
@@ -23,6 +32,8 @@ export function HistoryView() {
   const [endDate, setEndDate] = useState<string>("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selectedCheckItems, setSelectedCheckItems] = useState<Product[]>([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(10)
 
   const { data: stores, isLoading: storesLoading } = useSWR<Store[]>(user?.role === 'admin' ? '/api/stores' : null, fetcher);
   
@@ -38,10 +49,12 @@ export function HistoryView() {
     if (endDate) {
       params.append('endDate', endDate);
     }
+    params.append('page', currentPage.toString());
+    params.append('limit', itemsPerPage.toString());
     return params.toString();
-  }, [selectedStoreId, startDate, endDate]);
+  }, [selectedStoreId, startDate, endDate, currentPage, itemsPerPage]);
 
-  const { data: filteredChecks, isLoading: checksLoading } = useSWR<InventoryCheck[]>(
+  const { data: paginatedData, isLoading: checksLoading } = useSWR<PaginatedInventoryResponse>(
     `/api/inventory-checks?${queryParams}`, 
     fetcher
   );
@@ -60,11 +73,41 @@ export function HistoryView() {
   const clearDateFilters = () => {
     setStartDate("");
     setEndDate("");
+    setCurrentPage(1); // Reset to first page when clearing filters
+  }
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  }
+
+  const handleItemsPerPageChange = (value: string) => {
+    setItemsPerPage(parseInt(value));
+    setCurrentPage(1); // Reset to first page when changing items per page
+  }
+
+  // Reset to first page when filters change
+  const handleStoreChange = (value: string) => {
+    setSelectedStoreId(value);
+    setCurrentPage(1);
+  }
+
+  const handleDateChange = (type: 'start' | 'end', value: string) => {
+    if (type === 'start') {
+      setStartDate(value);
+    } else {
+      setEndDate(value);
+    }
+    setCurrentPage(1);
   }
 
   if (!user) return null;
 
   const isLoading = (user?.role === 'admin' && storesLoading) || checksLoading;
+  const filteredChecks = paginatedData?.checks || [];
+  const totalItems = paginatedData?.total || 0;
+  const totalPages = paginatedData?.totalPages || 1;
+  const hasNext = paginatedData?.hasNext || false;
+  const hasPrev = paginatedData?.hasPrev || false;
 
   return (
     <>
@@ -82,7 +125,7 @@ export function HistoryView() {
               </div>
               {user.role === 'admin' && (
                 <div className="w-full md:w-[250px]">
-                  <Select value={selectedStoreId} onValueChange={setSelectedStoreId}>
+                  <Select value={selectedStoreId} onValueChange={handleStoreChange}>
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Filter by store..." />
                     </SelectTrigger>
@@ -113,7 +156,7 @@ export function HistoryView() {
                   <Input
                     type="date"
                     value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
+                    onChange={(e) => handleDateChange('start', e.target.value)}
                     className="w-full"
                   />
                 </div>
@@ -122,7 +165,7 @@ export function HistoryView() {
                   <Input
                     type="date"
                     value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
+                    onChange={(e) => handleDateChange('end', e.target.value)}
                     className="w-full"
                   />
                 </div>
@@ -149,6 +192,31 @@ export function HistoryView() {
                 </div>
               )}
             </div>
+
+            {/* Pagination Controls - Top */}
+            {!isLoading && totalItems > 0 && (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">
+                    Showing {Math.min((currentPage - 1) * itemsPerPage + 1, totalItems)} - {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} results
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Items per page:</span>
+                  <Select value={itemsPerPage.toString()} onValueChange={handleItemsPerPageChange}>
+                    <SelectTrigger className="w-20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5</SelectItem>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="20">20</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -259,6 +327,79 @@ export function HistoryView() {
                 </TableBody>
               </Table>
             </div>
+            
+            {/* Pagination Controls - Bottom */}
+            {!isLoading && totalItems > 0 && (
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mt-4 pt-4 border-t">
+                <div className="text-sm text-muted-foreground">
+                  Page {currentPage} of {totalPages} ({totalItems} total items)
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={!hasPrev}
+                    className="flex items-center gap-1"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </Button>
+                  
+                  {/* Page numbers */}
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      
+                      return (
+                        <Button
+                          key={pageNum}
+                          variant={currentPage === pageNum ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handlePageChange(pageNum)}
+                          className="w-8 h-8 p-0"
+                        >
+                          {pageNum}
+                        </Button>
+                      );
+                    })}
+                    {totalPages > 5 && currentPage < totalPages - 2 && (
+                      <>
+                        <span className="text-muted-foreground">...</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handlePageChange(totalPages)}
+                          className="w-8 h-8 p-0"
+                        >
+                          {totalPages}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={!hasNext}
+                    className="flex items-center gap-1"
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
           )}
         </CardContent>
