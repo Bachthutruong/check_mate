@@ -2122,10 +2122,20 @@ export function InventoryCheckClient() {
       duration: 4000,
     });
 
-    // Close dialog and reset
-    setShowManualInputDialog(false);
+    // Reset inputs but keep dialog open for continued input
     setManualBarcode("");
     setManualQuantity("1");
+    setProductSuggestions([]);
+    setShowSuggestions(false);
+    setSelectedSuggestionIndex(-1);
+    
+    // Auto-focus back to barcode input for next entry
+    setTimeout(() => {
+      const barcodeInput = document.getElementById('manual-barcode');
+      if (barcodeInput) {
+        barcodeInput.focus();
+      }
+    }, 100);
 
     // Highlight the updated product in table
     setTimeout(() => {
