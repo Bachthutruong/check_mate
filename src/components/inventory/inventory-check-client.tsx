@@ -48,6 +48,13 @@ export function InventoryCheckClient() {
   const [productQuantities, _setProductQuantities] = useState<Map<string, { scanned: number; total: number }>>(new Map());
   const [forceUpdateCounter, setForceUpdateCounter] = useState(0); // Force re-render counter
   
+  // Add state for tracking upload date information
+  const [uploadInfo, setUploadInfo] = useState<{
+    uploadDate: string;
+    fileName: string;
+    productCount: number;
+  } | null>(null);
+  
   // Wrapped setProductQuantities with localStorage backup and ref sync
   const setProductQuantities = (value: Map<string, { scanned: number; total: number }> | ((prev: Map<string, { scanned: number; total: number }>) => Map<string, { scanned: number; total: number }>)) => {
     
@@ -63,6 +70,12 @@ export function InventoryCheckClient() {
           const serialized = JSON.stringify(Array.from(newValue.entries()));
           const storageKey = `productQuantities_${selectedStoreId}`;
           localStorage.setItem(storageKey, serialized);
+          
+          // Save upload info separately
+          if (uploadInfo) {
+            const uploadStorageKey = `uploadInfo_${selectedStoreId}`;
+            localStorage.setItem(uploadStorageKey, JSON.stringify(uploadInfo));
+          }
           
           // Verify save
           const verified = localStorage.getItem(storageKey);
@@ -87,6 +100,12 @@ export function InventoryCheckClient() {
         const serialized = JSON.stringify(Array.from(value.entries()));
         const storageKey = `productQuantities_${selectedStoreId}`;
         localStorage.setItem(storageKey, serialized);
+        
+        // Save upload info separately
+        if (uploadInfo) {
+          const uploadStorageKey = `uploadInfo_${selectedStoreId}`;
+          localStorage.setItem(uploadStorageKey, JSON.stringify(uploadInfo));
+        }
         
         // Verify save
         const verified = localStorage.getItem(storageKey);
@@ -120,6 +139,21 @@ export function InventoryCheckClient() {
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [hasCompletedCheck, setHasCompletedCheck] = useState<boolean>(false);
   const [showQuantityDialog, setShowQuantityDialog] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'incomplete' | 'completed'>('incomplete');
+  
+  // Handle tab change and reset category if needed
+  const handleTabChange = (newTab: 'incomplete' | 'completed') => {
+    setActiveTab(newTab);
+    
+    // Reset category to "All" when switching tabs to avoid empty categories
+    // This ensures user always sees results when switching tabs
+    setTimeout(() => {
+      const currentStats = getCategoryStats[selectedCategory];
+      if (!currentStats || currentStats.total === 0) {
+        setSelectedCategory('All');
+      }
+    }, 0);
+  };
   const [quantityInputProduct, setQuantityInputProduct] = useState<Product | null>(null);
   const [quantityInput, setQuantityInput] = useState<string>("");
   const [cameraInfo, setCameraInfo] = useState<{
@@ -810,13 +844,20 @@ export function InventoryCheckClient() {
       return;
     }
 
+    // Store upload information
+    const currentUploadInfo = {
+      uploadDate: new Date().toISOString(),
+      fileName: file.name,
+      productCount: 0 // Will be updated after processing
+    };
+
     // Show loading dialog
     setIsImporting(true);
     setShowImportDialog(true);
     setImportStatus({
       type: 'loading',
       message: '正在讀取和處理Excel文件...',
-      details: '請稍候，系統正在分析文件內容'
+      details: `文件名稱: ${file.name}\n上傳時間: ${formatDateTime(new Date())}\n請稍候，系統正在分析文件內容`
     });
 
     const reader = new FileReader();
@@ -825,7 +866,7 @@ export function InventoryCheckClient() {
             setImportStatus({
               type: 'loading',
               message: '正在解析Excel數據...',
-              details: '正在讀取工作表內容'
+              details: `文件名稱: ${file.name}\n處理時間: ${formatDateTime(new Date())}\n正在讀取工作表內容`
             });
 
             const data = new Uint8Array(e.target?.result as ArrayBuffer);
@@ -846,7 +887,7 @@ export function InventoryCheckClient() {
             setImportStatus({
               type: 'loading',
               message: '正在過濾產品數據...',
-              details: `找到 ${rows.length} 行數據，正在處理中...`
+              details: `文件名稱: ${file.name}\n找到 ${rows.length} 行數據，正在處理中...\n開始時間: ${formatDateTime(new Date())}`
             });
 
             for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
@@ -879,7 +920,7 @@ export function InventoryCheckClient() {
                   setImportStatus({
                     type: 'loading',
                     message: '正在處理產品數據...',
-                    details: `已處理 ${processedRows}/${rows.length} 行 (${Math.round(processedRows/rows.length*100)}%)`
+                    details: `文件名稱: ${file.name}\n已處理 ${processedRows}/${rows.length} 行 (${Math.round(processedRows/rows.length*100)}%)\n處理時間: ${formatDateTime(new Date())}`
                   });
                   await new Promise(resolve => setTimeout(resolve, 10)); // Allow UI update
                 }
@@ -911,7 +952,6 @@ export function InventoryCheckClient() {
                 const differenceAmount = parseExcelNumber(row[9]);
                 const notes = row[10] || '';
                 
-
 
                 // Debug logging
                 console.log('Processing row:', {
@@ -968,7 +1008,7 @@ export function InventoryCheckClient() {
                     setImportStatus({
                       type: 'loading',
                       message: '正在保存產品到數據庫...',
-                      details: `準備保存 ${newProducts.length} 個產品到 ${currentStore.name}`
+                      details: `文件名稱: ${file.name}\n準備保存 ${newProducts.length} 個產品到 ${currentStore.name}\n保存時間: ${formatDateTime(new Date())}`
                     });
 
                     console.log('Sending API request with products:', newProducts.length);
@@ -998,13 +1038,17 @@ export function InventoryCheckClient() {
                     const result = await response.json();
                     createdCount = result.created || 0;
                     
+                    // Update upload info with final product count
+                    currentUploadInfo.productCount = createdCount;
+                    setUploadInfo(currentUploadInfo);
+                    
                     console.log('API response result:', result);
                     console.log('API created products sample:', result.createdProducts?.[0]);
                     
                     setImportStatus({
                       type: 'loading',
                       message: '正在刷新產品列表...',
-                      details: '更新界面顯示'
+                      details: `文件名稱: ${file.name}\n已成功保存 ${createdCount} 個產品\n完成時間: ${formatDateTime(new Date())}\n更新界面顯示`
                     });
 
                     // Refresh products data to include new products
@@ -1020,6 +1064,11 @@ export function InventoryCheckClient() {
                       const storageKey = `productQuantities_${selectedStoreId}`;
                       localStorage.removeItem(storageKey);
                       console.log('🗑️ Cleared scan quantities for new import:', storageKey);
+                      
+                      // Save new upload info to localStorage
+                      const uploadStorageKey = `uploadInfo_${selectedStoreId}`;
+                      localStorage.setItem(uploadStorageKey, JSON.stringify(currentUploadInfo));
+                      console.log('💾 Saved upload info:', uploadStorageKey, currentUploadInfo);
                       
                       // Verify removal
                       const verifyRemoval = localStorage.getItem(storageKey);
@@ -1039,7 +1088,7 @@ export function InventoryCheckClient() {
                     setImportStatus({
                       type: 'error',
                       message: '保存產品失敗',
-                      details: `錯誤詳情: ${error instanceof Error ? error.message : '未知錯誤'}\n請檢查網絡連接或聯繫技術支持。`
+                      details: `文件名稱: ${file.name}\n錯誤時間: ${formatDateTime(new Date())}\n錯誤詳情: ${error instanceof Error ? error.message : '未知錯誤'}\n請檢查網絡連接或聯繫技術支持。`
                     });
                     return;
                 }
@@ -1053,7 +1102,7 @@ export function InventoryCheckClient() {
                 setImportStatus({
                   type: 'error',
                   message: '沒有找到匹配的產品',
-                  details: `${noMatchMessage}\n\n請確保:\n• Excel文件第一列為店名，且與選中的商店名稱完全一致\n• 檔案格式正確\n• 產品資料完整`
+                  details: `文件名稱: ${file.name}\n處理時間: ${formatDateTime(new Date())}\n\n${noMatchMessage}\n\n請確保:\n• Excel文件第一列為店名，且與選中的商店名稱完全一致\n• 檔案格式正確\n• 產品資料完整`
                 });
                 return;
             }
@@ -1061,11 +1110,12 @@ export function InventoryCheckClient() {
             // Success message with detailed statistics
             const autoGeneratedMessage = autoGeneratedCount > 0 ? `\n• 自動生成條碼: ${autoGeneratedCount} 個` : '';
             const skippedMessage = skippedCount > 0 ? `\n• 跳過其他商店產品: ${skippedCount} 個` : '';
+            const uploadDateTime = formatDateTime(new Date(currentUploadInfo.uploadDate));
             
             setImportStatus({
               type: 'success',
               message: '產品匯入成功！',
-              details: `✅ 匯入統計:\n• 商店: ${currentStore.name}\n• 成功創建產品: ${createdCount} 個${autoGeneratedMessage}${skippedMessage}\n• 總處理行數: ${processedRows}\n\n現在可以開始掃描或手動檢查產品。`
+              details: `✅ 匯入統計:\n• 文件名稱: ${file.name}\n• 上傳時間: ${uploadDateTime}\n• 商店: ${currentStore.name}\n• 成功創建產品: ${createdCount} 個${autoGeneratedMessage}${skippedMessage}\n• 總處理行數: ${processedRows}\n• 完成時間: ${formatDateTime(new Date())}\n\n現在可以開始掃描或手動檢查產品。`
             });
 
         } catch (error) {
@@ -1073,7 +1123,7 @@ export function InventoryCheckClient() {
             setImportStatus({
               type: 'error',
               message: '文件處理錯誤',
-              details: `無法讀取Excel文件。\n\n錯誤詳情: ${error instanceof Error ? error.message : '未知錯誤'}\n\n請確保:\n• 文件為有效的Excel格式(.xlsx/.xls)\n• 文件沒有被其他程序占用\n• 文件結構符合要求`
+              details: `文件名稱: ${file.name}\n錯誤時間: ${formatDateTime(new Date())}\n\n無法讀取Excel文件。\n\n錯誤詳情: ${error instanceof Error ? error.message : '未知錯誤'}\n\n請確保:\n• 文件為有效的Excel格式(.xlsx/.xls)\n• 文件沒有被其他程序占用\n• 文件結構符合要求`
             });
         } finally {
             setIsImporting(false);
@@ -1178,6 +1228,7 @@ export function InventoryCheckClient() {
       
       // Check if we have localStorage data first
       const stored = localStorage.getItem(`productQuantities_${selectedStoreId}`);
+      const uploadStored = localStorage.getItem(`uploadInfo_${selectedStoreId}`);
       let hasStoredData = false;
       let storedMap = new Map<string, { scanned: number; total: number }>();
       
@@ -1189,6 +1240,17 @@ export function InventoryCheckClient() {
           console.log('📱 Found localStorage data:', hasStoredData, 'items:', storedMap.size);
         } catch (e) {
           console.warn('Failed to parse stored data during initialize:', e);
+        }
+      }
+      
+      // Restore upload info if available
+      if (uploadStored) {
+        try {
+          const restoredUploadInfo = JSON.parse(uploadStored);
+          setUploadInfo(restoredUploadInfo);
+          console.log('📱 Restored upload info:', restoredUploadInfo);
+        } catch (e) {
+          console.warn('Failed to parse stored upload info:', e);
         }
       }
       
@@ -1234,10 +1296,17 @@ export function InventoryCheckClient() {
           const scannedCount = Array.from(storedMap.values()).reduce((sum, qty) => sum + qty.scanned, 0);
           const totalItems = Array.from(storedMap.values()).reduce((sum, qty) => sum + qty.total, 0);
           
+          // Include upload info in restoration message
+          let restorationMessage = `從上次檢查恢復了 ${storedMap.size} 個產品的掃描進度\n已掃描: ${scannedCount}/${totalItems} 個`;
+          
+          if (uploadInfo) {
+            restorationMessage += `\n上傳文件: ${uploadInfo.fileName}\n上傳時間: ${getRelativeTime(uploadInfo.uploadDate)}`;
+          }
+          
           toast({
             title: "數據已恢復 ✅",
-            description: `從上次檢查恢復了 ${storedMap.size} 個產品的掃描進度\n已掃描: ${scannedCount}/${totalItems} 個`,
-            duration: 4000,
+            description: restorationMessage,
+            duration: 5000,
           });
         }
         
@@ -1911,22 +1980,36 @@ export function InventoryCheckClient() {
     setSelectedStoreId("");
     setProductQuantities(new Map());
     setHasCompletedCheck(false);
+    setUploadInfo(null); // Clear upload info
     
     // Clear localStorage
     if (typeof window !== 'undefined' && selectedStoreId) {
       const storageKey = `productQuantities_${selectedStoreId}`;
+      const uploadStorageKey = `uploadInfo_${selectedStoreId}`;
       localStorage.removeItem(storageKey);
-      console.log('🗑️ Cleared localStorage on end check:', storageKey);
+      localStorage.removeItem(uploadStorageKey);
+      console.log('🗑️ Cleared localStorage on end check:', storageKey, uploadStorageKey);
       
       // Verify removal
       const verifyRemoval = localStorage.getItem(storageKey);
-      console.log('✅ Verified removal:', verifyRemoval === null ? 'Success' : 'Failed');
+      const verifyUploadRemoval = localStorage.getItem(uploadStorageKey);
+      console.log('✅ Verified removal:', {
+        quantities: verifyRemoval === null ? 'Success' : 'Failed',
+        uploadInfo: verifyUploadRemoval === null ? 'Success' : 'Failed'
+      });
+    }
+    
+    let endMessage = "已退出檢查模式，現在可以選擇其他商店";
+    if (uploadInfo) {
+      const totalDuration = Math.round((new Date().getTime() - new Date(uploadInfo.uploadDate).getTime()) / (1000 * 60));
+      endMessage += `\n\n本次檢查總時長: ${totalDuration} 分鐘`;
+      endMessage += `\n文件: ${uploadInfo.fileName}`;
     }
     
     toast({
       title: "檢查已結束",
-      description: "已退出檢查模式，現在可以選擇其他商店",
-      duration: 2000,
+      description: endMessage,
+      duration: 3000,
     });
   };
 
@@ -2300,30 +2383,78 @@ export function InventoryCheckClient() {
     return ["All", ...Array.from(cats)];
   }, [storeProducts]);
 
-  // Calculate category statistics
+  // Calculate completion statistics based on selected category
+  const completionStats = useMemo(() => {
+    if (!storeProducts) return { completed: 0, incomplete: 0, total: 0 };
+    
+    // Filter products by selected category first
+    const categoryProducts = selectedCategory === 'All' 
+      ? storeProducts 
+      : storeProducts.filter(p => p.category === selectedCategory);
+    
+    let completed = 0;
+    let incomplete = 0;
+    
+    categoryProducts.forEach(product => {
+      const quantity = productQuantities.get(product._id!) || { scanned: 0, total: product.computerInventory || 1 };
+      if (quantity.scanned >= quantity.total) {
+        completed++;
+      } else {
+        incomplete++;
+      }
+    });
+    
+    return {
+      completed,
+      incomplete, 
+      total: categoryProducts.length
+    };
+  }, [storeProducts, productQuantities, forceUpdateCounter, selectedCategory]);
+
+  // Calculate category statistics based on active tab
   const getCategoryStats = useMemo(() => {
     if (!storeProducts) return {};
     
-    const stats: Record<string, { unchecked: number; total: number }> = {};
+    const stats: Record<string, { unchecked: number; total: number; completed: number }> = {};
     
     categories.forEach(category => {
       const categoryProducts = category === 'All' 
         ? storeProducts 
         : storeProducts.filter(p => p.category === category);
       
-      const unchecked = categoryProducts.filter(p => {
-        const quantity = productQuantities.get(p._id!) || { scanned: 0, total: p.computerInventory || 1 };
-        return quantity.scanned < quantity.total;
-      }).length;
+      // Calculate stats for each category
+      let totalInCategory = categoryProducts.length;
+      let completedInCategory = 0;
+      let incompleteInCategory = 0;
       
-      stats[category] = {
-        unchecked,
-        total: categoryProducts.length
-      };
+      categoryProducts.forEach(p => {
+        const quantity = productQuantities.get(p._id!) || { scanned: 0, total: p.computerInventory || 1 };
+        const isCompleted = quantity.scanned >= quantity.total;
+        if (isCompleted) {
+          completedInCategory++;
+        } else {
+          incompleteInCategory++;
+        }
+      });
+      
+      // Set stats based on active tab
+      if (activeTab === 'completed') {
+        stats[category] = {
+          unchecked: 0, // All items in completed tab are completed by definition
+          total: completedInCategory, // Only show completed items count
+          completed: completedInCategory
+        };
+      } else {
+        stats[category] = {
+          unchecked: incompleteInCategory, // Show incomplete items count
+          total: incompleteInCategory, // Only show incomplete items count
+          completed: completedInCategory
+        };
+      }
     });
     
     return stats;
-  }, [categories, storeProducts, productQuantities, forceUpdateCounter]);
+  }, [categories, storeProducts, productQuantities, forceUpdateCounter, activeTab]);
 
   const completeCheck = async () => {
     if (!user || !selectedStoreId || !storeProducts) return;
@@ -2346,6 +2477,7 @@ export function InventoryCheckClient() {
       }
     });
 
+    const currentTime = new Date().toISOString();
     const newCheck = {
       storeId: selectedStoreId,
       storeName: stores?.find(s => s._id === selectedStoreId)?.name || 'Unknown Store',
@@ -2353,6 +2485,12 @@ export function InventoryCheckClient() {
       checkedItems: Array.from(fullyScannedIds),
       missingItems: incompleteItems.map(item => item._id!),
       productQuantities: Array.from(productQuantities.entries()),
+      // Add upload and completion date information
+      uploadInfo: uploadInfo,
+      completionDate: currentTime,
+      checkDuration: uploadInfo ? 
+        Math.round((new Date(currentTime).getTime() - new Date(uploadInfo.uploadDate).getTime()) / (1000 * 60)) : 
+        null, // Duration in minutes
     };
 
     try {
@@ -2364,9 +2502,22 @@ export function InventoryCheckClient() {
         if (!res.ok) throw new Error('Failed to save inventory check');
 
         const result = await res.json();
+        
+        // Prepare completion message with upload and timing information
+        let completionMessage = `狀態: ${result.status === 'Completed' ? '完成' : '短缺'}。結果已保存到歷史記錄。`;
+        
+        if (uploadInfo) {
+          const checkDuration = Math.round((new Date(currentTime).getTime() - new Date(uploadInfo.uploadDate).getTime()) / (1000 * 60));
+          completionMessage += `\n\n📁 原始文件: ${uploadInfo.fileName}`;
+          completionMessage += `\n📊 檢查產品: ${uploadInfo.productCount} 個`;
+          completionMessage += `\n🕐 檢查時長: ${checkDuration} 分鐘`;
+          completionMessage += `\n⏰ 完成時間: ${formatDateTime(new Date(currentTime))}`;
+        }
+        
         toast({
-            title: "庫存檢查完成",
-            description: `狀態: ${result.status === 'Completed' ? '完成' : '短缺'}。結果已保存到歷史記錄。`,
+            title: "庫存檢查完成 ✅",
+            description: completionMessage,
+            duration: 6000,
         });
 
         // Mark as completed - this allows user to switch stores
@@ -2440,6 +2591,38 @@ export function InventoryCheckClient() {
     }
   }, [showManualInputDialog, storeProducts]);
 
+  // Helper function to format date and time in yyyy/mm/dd, 00:00 (AM/PM) format
+  const formatDateTime = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    
+    // Format time in 12-hour format with AM/PM
+    const timeString = date.toLocaleTimeString('en-US', {
+      hour12: true,
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    return `${year}/${month}/${day}, ${timeString}`;
+  };
+
+  // Helper function to get relative time
+  const getRelativeTime = (dateString: string): string => {
+    const now = new Date();
+    const uploadDate = new Date(dateString);
+    const diffMs = now.getTime() - uploadDate.getTime();
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMinutes < 1) return '剛才';
+    if (diffMinutes < 60) return `${diffMinutes} 分鐘前`;
+    if (diffHours < 24) return `${diffHours} 小時前`;
+    if (diffDays < 7) return `${diffDays} 天前`;
+    return formatDateTime(uploadDate);
+  };
+
   if (!user || storesLoading) return <Skeleton className="w-full h-96" />;
 
   return (
@@ -2475,7 +2658,7 @@ export function InventoryCheckClient() {
                     ) : (
                         <>
                             <Upload className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-                            <span className="hidden sm:inline">匯入 Excel</span>
+                            <span className="hidden sm:inline">匯入 上傳盤點商品</span>
                             <span className="sm:hidden">匯入</span>
                         </>
                     )}
@@ -2487,7 +2670,7 @@ export function InventoryCheckClient() {
                     className="text-xs sm:text-sm h-8 sm:h-9"
                 >
                     <Camera className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-                    <span className="hidden sm:inline">{isInitializingCamera ? "啟動相機中..." : "掃描條碼"}</span>
+                    <span className="hidden sm:inline">{isInitializingCamera ? "啟動相機中..." : "手機掃描"}</span>
                     <span className="sm:hidden">{isInitializingCamera ? "啟動" : "掃描"}</span>
                 </Button>
                 <Button 
@@ -2509,7 +2692,7 @@ export function InventoryCheckClient() {
                             className="text-xs sm:text-sm h-8 sm:h-9 bg-green-600 hover:bg-green-700"
                         >
                             <CheckCircle2 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-                            <span className="hidden sm:inline">完成檢查</span>
+                            <span className="hidden sm:inline">完成盤點</span>
                             <span className="sm:hidden">完成</span>
                         </Button>
                         {/* <Button 
@@ -2531,7 +2714,7 @@ export function InventoryCheckClient() {
         {/* Store Selection Badges */}
         <div className="space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <h3 className="text-base sm:text-lg font-semibold">選擇商店</h3>
+            <h3 className="text-base sm:text-lg font-semibold">選店點</h3>
             <div className="text-xs bg-gray-50 px-2 py-1 rounded border w-fit">
               總共 {userStores.length} 個商店
             </div>
@@ -2541,6 +2724,20 @@ export function InventoryCheckClient() {
           <div className="flex flex-wrap gap-1.5 sm:gap-2">
             {userStores.map(store => {
               const isSelected = selectedStoreId === store._id;
+              
+              // Check if this store has upload info in localStorage
+              const storeUploadInfo = (() => {
+                if (typeof window !== 'undefined') {
+                  try {
+                    const uploadStorageKey = `uploadInfo_${store._id}`;
+                    const stored = localStorage.getItem(uploadStorageKey);
+                    return stored ? JSON.parse(stored) : null;
+                  } catch (e) {
+                    return null;
+                  }
+                }
+                return null;
+              })();
               
               return (
                 <div
@@ -2556,14 +2753,17 @@ export function InventoryCheckClient() {
                       min-h-[28px] sm:min-h-[36px] select-none text-center
                       ${isSelected 
                         ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md ring-1 ring-blue-300' 
-                        : 'bg-white hover:bg-blue-50 text-blue-700 border-blue-300 hover:border-blue-400'
+                        : storeUploadInfo 
+                          ? 'bg-green-50 hover:bg-green-100 text-green-700 border-green-300 hover:border-green-400'
+                          : 'bg-white hover:bg-blue-50 text-blue-700 border-blue-300 hover:border-blue-400'
                       }
                       ${userStores.length <= 1 && isChecking && !isSelected ? 'opacity-50 cursor-not-allowed' : ''}
                     `}
                   >
                     {/* Store Icon */}
                     <Warehouse className={`h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0 ${
-                      isSelected ? 'text-white' : 'text-blue-600'
+                      isSelected ? 'text-white' : 
+                      storeUploadInfo ? 'text-green-600' : 'text-blue-600'
                     }`} />
                     
                     {/* Store Name */}
@@ -2571,16 +2771,23 @@ export function InventoryCheckClient() {
                       {store.name}
                     </span>
                     
+                    {/* Upload Status Indicator */}
+                    {storeUploadInfo && !isSelected && (
+                      <Upload className="h-2 w-2 sm:h-3 sm:w-3 text-green-600" />
+                    )}
+                    
                     {/* Status Badge */}
                     <div className={`
                       px-1.5 py-0.5 sm:px-2 rounded-full text-[10px] sm:text-xs font-bold 
                       min-w-[16px] sm:min-w-[20px] text-center
                       ${isSelected 
                         ? 'bg-white/20 text-white' 
-                        : 'bg-blue-100 text-blue-800'
+                        : storeUploadInfo 
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-blue-100 text-blue-800'
                       }
                     `}>
-                      {isSelected ? '已選' : '選擇'}
+                      {isSelected ? '已選' : storeUploadInfo ? '有數據' : '選擇'}
                     </div>
                   </Badge>
                   
@@ -2589,6 +2796,15 @@ export function InventoryCheckClient() {
                     <div className="absolute -top-0.5 -right-0.5 z-10">
                       <div className="bg-green-500 text-white rounded-full p-0.5">
                         <CheckCircle2 className="h-2 w-2 sm:h-3 sm:w-3" />
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Upload Info Tooltip/Indicator */}
+                  {storeUploadInfo && !isSelected && (
+                    <div className="absolute -bottom-1 -right-1 z-10">
+                      <div className="bg-green-500 text-white rounded-full p-0.5" title={`數據: ${storeUploadInfo.fileName} (${getRelativeTime(storeUploadInfo.uploadDate)})`}>
+                        <div className="h-1.5 w-1.5 bg-white rounded-full"></div>
                       </div>
                     </div>
                   )}
@@ -2601,20 +2817,73 @@ export function InventoryCheckClient() {
         {isChecking && productsLoading && <Skeleton className="w-full h-64" />}
         {isChecking && !productsLoading && storeProducts && (
           <div className="w-full">
+            {/* Upload Information Banner */}
+            {uploadInfo && (
+              <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 rounded-full">
+                      <Upload className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-blue-900">產品清單已上傳</h4>
+                      <div className="text-sm text-blue-700">
+                        <div>📁 文件: <span className="font-mono bg-white px-2 py-0.5 rounded">{uploadInfo.fileName}</span></div>
+                        <div>📊 產品數量: <span className="font-medium">{uploadInfo.productCount.toLocaleString()}</span> 個</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:items-end gap-1">
+                    <div className="text-sm font-medium text-blue-800">
+                      {getRelativeTime(uploadInfo.uploadDate)}
+                    </div>
+                    <div className="text-xs text-blue-600 font-mono">
+                      {formatDateTime(new Date(uploadInfo.uploadDate))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
             {/* Category Filter Tags */}
             <div className="space-y-3 mb-6">
               <div className="flex flex-col gap-2">
-                <h3 className="text-base sm:text-lg font-semibold">產品類別篩選</h3>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <h3 className="text-base sm:text-lg font-semibold">已商品分類篩選</h3>
+                  {uploadInfo && (
+                    <div className="text-xs text-muted-foreground">
+                      最後更新: {getRelativeTime(uploadInfo.uploadDate)}
+                    </div>
+                  )}
+                </div>
                 <div className="flex flex-col gap-2 text-sm text-muted-foreground">
                   <div className="flex items-center gap-2">
-                    <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-sky-500"></span>
-                    </span>
-                    <span className="text-xs sm:text-sm">待完成 {getCategoryStats[selectedCategory]?.unchecked || 0} 項</span>
+                    {activeTab === 'incomplete' ? (
+                      <>
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-orange-500"></span>
+                        </span>
+                        <span className="text-xs sm:text-sm">待完成 {getCategoryStats[selectedCategory]?.total || 0} 項</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="relative flex h-3 w-3">
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                        </span>
+                        <span className="text-xs sm:text-sm">已完成 {getCategoryStats[selectedCategory]?.total || 0} 項</span>
+                      </>
+                    )}
                   </div>
-                  <div className="text-xs bg-blue-50 px-2 py-1 rounded border inline-block w-fit">
-                    總計: {getCategoryStats[selectedCategory]?.total || 0} | 已完成: {(getCategoryStats[selectedCategory]?.total || 0) - (getCategoryStats[selectedCategory]?.unchecked || 0)}
+                  <div className={`text-xs px-2 py-1 rounded border inline-block w-fit ${
+                    activeTab === 'incomplete' 
+                      ? 'bg-orange-50 border-orange-200 text-orange-800' 
+                      : 'bg-green-50 border-green-200 text-green-800'
+                  }`}>
+                    {activeTab === 'incomplete' 
+                      ? `未檢查: ${getCategoryStats[selectedCategory]?.total || 0} 項` 
+                      : `已檢查: ${getCategoryStats[selectedCategory]?.total || 0} 項`
+                    }
                   </div>
                 </div>
               </div>
@@ -2623,9 +2892,12 @@ export function InventoryCheckClient() {
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-1.5 sm:gap-2">
                   {categories.map(category => {
-                    const stats = getCategoryStats[category] || { unchecked: 0, total: 0 };
+                    const stats = getCategoryStats[category] || { unchecked: 0, total: 0, completed: 0 };
                     const isSelected = selectedCategory === category;
-                    const isCompleted = stats.unchecked === 0 && stats.total > 0;
+                    const hasItems = stats.total > 0;
+                    // Show different colors based on tab and content
+                    const showAsCompleted = activeTab === 'completed' && hasItems;
+                    const showAsIncomplete = activeTab === 'incomplete' && hasItems;
                     
                     return (
                       <div
@@ -2640,10 +2912,13 @@ export function InventoryCheckClient() {
                             transition-colors duration-200 
                             min-h-[28px] sm:min-h-[36px] select-none text-center
                             ${isSelected 
-                              ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md ring-1 ring-blue-300' 
-                              : isCompleted 
-                                ? 'bg-green-100 hover:bg-green-200 text-green-800 border-green-300' 
-                                : stats.unchecked > 0 
+                              ? (activeTab === 'completed' 
+                                  ? 'bg-green-600 hover:bg-green-700 text-white shadow-md ring-1 ring-green-300'
+                                  : 'bg-orange-600 hover:bg-orange-700 text-white shadow-md ring-1 ring-orange-300'
+                                )
+                              : showAsCompleted
+                                ? 'bg-green-100 hover:bg-green-200 text-green-800 border-green-300'
+                                : showAsIncomplete
                                   ? 'bg-orange-100 hover:bg-orange-200 text-orange-800 border-orange-300'
                                   : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-300'
                             }
@@ -2656,9 +2931,8 @@ export function InventoryCheckClient() {
                               { 
                                 className: `h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0 ${
                                   isSelected ? 'text-white' : 
-                                  isCompleted ? 'text-green-600' : 
-                                  stats.unchecked > 0 ? 'text-orange-600' : 
-                                  'text-gray-500'
+                                  showAsCompleted ? 'text-green-600' :
+                                  showAsIncomplete ? 'text-orange-600' : 'text-gray-500'
                                 }`
                               }
                             )}
@@ -2675,19 +2949,19 @@ export function InventoryCheckClient() {
                             min-w-[16px] sm:min-w-[20px] text-center
                             ${isSelected 
                               ? 'bg-white/20 text-white' 
-                              : isCompleted 
-                                ? 'bg-green-200 text-green-800' 
-                                : stats.unchecked > 0 
+                              : showAsCompleted
+                                ? 'bg-green-200 text-green-800'
+                                : showAsIncomplete
                                   ? 'bg-orange-200 text-orange-800'
                                   : 'bg-gray-200 text-gray-600'
                             }
                           `}>
-                            {stats.unchecked > 0 ? stats.unchecked : stats.total}
+                            {stats.total}
                           </div>
                         </Badge>
                         
                         {/* Status Indicator - Smaller on mobile */}
-                        {isCompleted && !isSelected && (
+                        {showAsCompleted && !isSelected && (
                           <div className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 z-10">
                             <div className="bg-green-500 text-white rounded-full p-0.5">
                               <CheckCircle2 className="h-2 w-2 sm:h-3 sm:w-3" />
@@ -2695,13 +2969,22 @@ export function InventoryCheckClient() {
                           </div>
                         )}
                         
-                        {/* Count Indicator - Show checked/total */}
-                        {stats.total > 0 && !isSelected && (
+                        {showAsIncomplete && !isSelected && (
+                          <div className="absolute -top-0.5 -right-0.5 sm:-top-1 sm:-right-1 z-10">
+                            <div className="bg-orange-500 text-white rounded-full p-0.5">
+                              <XCircle className="h-2 w-2 sm:h-3 sm:w-3" />
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Count Indicator - Show total */}
+                        {hasItems && !isSelected && (
                           <div className="absolute -top-0.5 -left-0.5 sm:-top-1 sm:-left-1 z-10">
                             <div className={`text-white text-[7px] sm:text-[8px] rounded-full min-w-[16px] h-3 sm:min-w-[20px] sm:h-4 flex items-center justify-center font-bold px-1 ${
-                              stats.unchecked === 0 ? 'bg-green-500' : 'bg-blue-500'
+                              showAsCompleted ? 'bg-green-500' : 
+                              showAsIncomplete ? 'bg-orange-500' : 'bg-gray-500'
                             }`}>
-                              {stats.total - stats.unchecked}/{stats.total}
+                              {stats.total}
                             </div>
                           </div>
                         )}
@@ -2714,7 +2997,121 @@ export function InventoryCheckClient() {
               </div>
             </div>
             
+            {/* Status Tabs */}
+            <div className="mb-6 border-b border-gray-200">
+              <div className="flex space-x-8">
+                <button
+                  onClick={() => handleTabChange('incomplete')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'incomplete'
+                      ? 'border-orange-500 text-orange-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <XCircle className="h-4 w-4" />
+                    <span>未完成檢查</span>
+                    <div className={`px-2 py-0.5 rounded-full text-xs font-bold transition-colors ${
+                      activeTab === 'incomplete'
+                        ? 'bg-orange-100 text-orange-800'
+                        : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {completionStats.incomplete}
+                    </div>
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleTabChange('completed')}
+                  className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === 'completed'
+                      ? 'border-green-500 text-green-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span>已完成檢查</span>
+                    <div className={`px-2 py-0.5 rounded-full text-xs font-bold transition-colors ${
+                      activeTab === 'completed'
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {completionStats.completed}
+                    </div>
+                  </div>
+                </button>
+              </div>
+              
+              {/* Progress Summary */}
+              <div className="mt-3 mb-3 flex items-center gap-4 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <div className="w-full bg-gray-200 rounded-full h-2 max-w-[200px]">
+                    <div
+                      className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                      style={{
+                        width: `${completionStats.total > 0 ? (completionStats.completed / completionStats.total) * 100 : 0}%`
+                      }}
+                    ></div>
+                  </div>
+                  <span>
+                    進度: {completionStats.completed}/{completionStats.total} 
+                    ({completionStats.total > 0 ? Math.round((completionStats.completed / completionStats.total) * 100) : 0}%)
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Empty State Message */}
+            {storeProducts.filter(p => selectedCategory === 'All' || p.category === selectedCategory)
+              .filter(p => {
+                const quantity = productQuantities.get(p._id!) || { scanned: 0, total: p.computerInventory || 1 };
+                const isCompleted = quantity.scanned >= quantity.total;
+                return activeTab === 'completed' ? isCompleted : !isCompleted;
+              }).length === 0 && (
+              <div className="text-center py-8">
+                <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 ${
+                  activeTab === 'completed' 
+                    ? 'bg-green-100 text-green-600' 
+                    : 'bg-orange-100 text-orange-600'
+                }`}>
+                  {activeTab === 'completed' ? 
+                    <CheckCircle2 className="h-8 w-8" /> : 
+                    <XCircle className="h-8 w-8" />
+                  }
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  {activeTab === 'completed' ? '沒有已完成的產品' : '沒有待檢查的產品'}
+                </h3>
+                <p className="text-gray-500 mb-4">
+                  {selectedCategory === 'All' 
+                    ? (activeTab === 'completed' 
+                        ? '所有產品都還沒有完成檢查' 
+                        : '所有產品都已經完成檢查了！'
+                      )
+                    : (activeTab === 'completed'
+                        ? `類別「${selectedCategory}」中沒有已完成檢查的產品`
+                        : `類別「${selectedCategory}」中沒有待檢查的產品`
+                      )
+                  }
+                </p>
+                {selectedCategory !== 'All' && (
+                  <button
+                    onClick={() => setSelectedCategory('All')}
+                    className="text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    查看所有類別 →
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Products Table */}
+            {storeProducts.filter(p => selectedCategory === 'All' || p.category === selectedCategory)
+              .filter(p => {
+                const quantity = productQuantities.get(p._id!) || { scanned: 0, total: p.computerInventory || 1 };
+                const isCompleted = quantity.scanned >= quantity.total;
+                return activeTab === 'completed' ? isCompleted : !isCompleted;
+              }).length > 0 && (
             <div className="w-full">
                 <div className="rounded-md border overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100" style={{ maxWidth: '90vw' }}>
                     <Table className="w-full table-fixed min-w-[750px]">
@@ -2729,7 +3126,14 @@ export function InventoryCheckClient() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {storeProducts.filter(p => selectedCategory === 'All' || p.category === selectedCategory).map((product, index) => {
+                          {storeProducts
+                            .filter(p => selectedCategory === 'All' || p.category === selectedCategory)
+                            .filter(p => {
+                              const quantity = productQuantities.get(p._id!) || { scanned: 0, total: p.computerInventory || 1 };
+                              const isCompleted = quantity.scanned >= quantity.total;
+                              return activeTab === 'completed' ? isCompleted : !isCompleted;
+                            })
+                            .map((product, index) => {
                             const quantity = productQuantities.get(product._id!) || { scanned: 0, total: product.computerInventory || 1 };
                             const isFullyScanned = quantity.scanned >= quantity.total;
                             const CategoryIcon = categoryIcons[product.category] || categoryIcons.Default;
@@ -2839,6 +3243,7 @@ export function InventoryCheckClient() {
                     </Table>
                 </div>
             </div>
+            )}
           </div>
         )}
       </CardContent>
@@ -2867,7 +3272,7 @@ export function InventoryCheckClient() {
         <DialogContent className="sm:max-w-lg">
                           <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
-                    掃描條碼
+                手機掃描
                     {isMobile && (
                         <Badge variant="secondary" className="text-xs">
                             行動裝置

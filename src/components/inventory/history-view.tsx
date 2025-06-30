@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
-import { AlertCircle, CheckCircle2, Eye, Calendar, Filter, ChevronLeft, ChevronRight } from "lucide-react"
+import { AlertCircle, CheckCircle2, Eye, Calendar, Filter, ChevronLeft, ChevronRight, Warehouse } from "lucide-react"
 import { MissingItemsDialog } from "./missing-items-dialog"
 import { Skeleton } from "../ui/skeleton";
 
@@ -34,6 +34,22 @@ export function HistoryView() {
   const [selectedCheckItems, setSelectedCheckItems] = useState<Product[]>([])
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
+
+  // Helper function to format date and time in yyyy/mm/dd, 00:00 (AM/PM) format
+  const formatDateTime = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    
+    // Format time in 12-hour format with AM/PM
+    const timeString = date.toLocaleTimeString('en-US', {
+      hour12: true,
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    
+    return `${year}/${month}/${day}, ${timeString}`;
+  };
 
   const { data: stores, isLoading: storesLoading } = useSWR<Store[]>(user?.role === 'admin' ? '/api/stores' : null, fetcher);
   
@@ -114,45 +130,148 @@ export function HistoryView() {
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="flex flex-col gap-4">
               <div className="grid gap-2">
-                  <CardTitle>Inventory History</CardTitle>
+                  <CardTitle>各盤點記錄</CardTitle>
                   <CardDescription>
-                  {user.role === 'admin'
+                  {/* {user.role === 'admin'
                       ? "Review inventory checks from all stores."
-                      : "Review inventory checks from your assigned stores."}
+                      : "Review inventory checks from your assigned stores."} */}
                   </CardDescription>
               </div>
-              {user.role === 'admin' && (
-                <div className="w-full md:w-[250px]">
-                  <Select value={selectedStoreId} onValueChange={handleStoreChange}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Filter by store..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem value="all">All Stores</SelectItem>
-                        {userStores.map((store: Store) => (
-                          <SelectItem key={store._id} value={String(store._id)}>
-                            {store.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
             </div>
+
+            {/* Store Selection Tabs - Only show for admin */}
+            {user.role === 'admin' && (
+              <div className="space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <h3 className="text-base sm:text-lg font-semibold">選擇店點</h3>
+                  <div className="text-xs bg-gray-50 px-2 py-1 rounded border w-fit">
+                    {userStores.length + 1} options
+                  </div>
+                </div>
+                
+                {/* Store Badges - Flex Wrap Layout */}
+                <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                  {/* All Stores Option */}
+                  <div
+                    onClick={() => handleStoreChange("all")}
+                    className="relative cursor-pointer group"
+                  >
+                    <Badge
+                      variant={selectedStoreId === "all" ? "default" : "secondary"}
+                      className={`
+                        flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium 
+                        transition-colors duration-200 
+                        min-h-[28px] sm:min-h-[36px] select-none text-center
+                        ${selectedStoreId === "all"
+                          ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md ring-1 ring-blue-300'
+                          : 'bg-white hover:bg-blue-50 text-blue-700 border-blue-300 hover:border-blue-400'
+                        }
+                      `}
+                    >
+                      {/* All Stores Icon */}
+                      <Filter className={`h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0 ${
+                        selectedStoreId === "all" ? 'text-white' : 'text-blue-600'
+                      }`} />
+                      
+                      {/* Store Name */}
+                      <span className="font-medium">
+                        All Stores
+                      </span>
+                      
+                      {/* Status Badge */}
+                      <div className={`
+                        px-1.5 py-0.5 sm:px-2 rounded-full text-[10px] sm:text-xs font-bold 
+                        min-w-[16px] sm:min-w-[20px] text-center
+                        ${selectedStoreId === "all"
+                          ? 'bg-white/20 text-white'
+                          : 'bg-blue-100 text-blue-800'
+                        }
+                      `}>
+                        {selectedStoreId === "all" ? 'Active' : 'Select'}
+                      </div>
+                    </Badge>
+                    
+                    {/* Selected Indicator */}
+                    {selectedStoreId === "all" && (
+                      <div className="absolute -top-0.5 -right-0.5 z-10">
+                        <div className="bg-green-500 text-white rounded-full p-0.5">
+                          <CheckCircle2 className="h-2 w-2 sm:h-3 sm:w-3" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Individual Store Options */}
+                  {userStores.map(store => {
+                    const isSelected = selectedStoreId === store._id;
+                    
+                    return (
+                      <div
+                        key={store._id}
+                        onClick={() => handleStoreChange(store._id!)}
+                        className="relative cursor-pointer group"
+                      >
+                        <Badge
+                          variant={isSelected ? "default" : "secondary"}
+                          className={`
+                            flex items-center gap-1 px-2 py-1 sm:px-3 sm:py-2 text-xs sm:text-sm font-medium 
+                            transition-colors duration-200 
+                            min-h-[28px] sm:min-h-[36px] select-none text-center
+                            ${isSelected 
+                              ? 'bg-green-600 hover:bg-green-700 text-white shadow-md ring-1 ring-green-300' 
+                              : 'bg-white hover:bg-green-50 text-green-700 border-green-300 hover:border-green-400'
+                            }
+                          `}
+                        >
+                          {/* Store Icon */}
+                          <Warehouse className={`h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0 ${
+                            isSelected ? 'text-white' : 'text-green-600'
+                          }`} />
+                          
+                          {/* Store Name */}
+                          <span className="font-medium">
+                            {store.name}
+                          </span>
+                          
+                          {/* Status Badge */}
+                          <div className={`
+                            px-1.5 py-0.5 sm:px-2 rounded-full text-[10px] sm:text-xs font-bold 
+                            min-w-[16px] sm:min-w-[20px] text-center
+                            ${isSelected 
+                              ? 'bg-white/20 text-white' 
+                              : 'bg-green-100 text-green-800'
+                            }
+                          `}>
+                            {isSelected ? 'Active' : 'Select'}
+                          </div>
+                        </Badge>
+                        
+                        {/* Selected Indicator */}
+                        {isSelected && (
+                          <div className="absolute -top-0.5 -right-0.5 z-10">
+                            <div className="bg-blue-500 text-white rounded-full p-0.5">
+                              <CheckCircle2 className="h-2 w-2 sm:h-3 sm:w-3" />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             
             {/* Date Filter Section */}
             <div className="flex flex-col gap-4 p-4 bg-muted/50 rounded-lg border">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
-                <span className="text-sm font-medium">Date Filter</span>
+                <span className="text-sm font-medium">篩選日期</span>
               </div>
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                 <div className="flex flex-col gap-2 flex-1">
-                  <label className="text-xs text-muted-foreground">From:</label>
+                  <label className="text-xs text-muted-foreground">從:</label>
                   <Input
                     type="date"
                     value={startDate}
@@ -161,7 +280,7 @@ export function HistoryView() {
                   />
                 </div>
                 <div className="flex flex-col gap-2 flex-1">
-                  <label className="text-xs text-muted-foreground">To:</label>
+                  <label className="text-xs text-muted-foreground">到:</label>
                   <Input
                     type="date"
                     value={endDate}
@@ -177,7 +296,7 @@ export function HistoryView() {
                     disabled={!startDate && !endDate}
                   >
                     <Filter className="mr-2 h-4 w-4" />
-                    Clear Filter
+                    不篩選了
                   </Button>
                 </div>
               </div>
@@ -260,16 +379,13 @@ export function HistoryView() {
                           </TableCell>
                           <TableCell>
                             <div className="text-xs text-muted-foreground whitespace-nowrap">
-                              {new Intl.DateTimeFormat('en-US', { 
-                                dateStyle: 'short', 
-                                timeStyle: 'short' 
-                              }).format(new Date(check.date))}
+                              {formatDateTime(new Date(check.date))}
                             </div>
                           </TableCell>
                           <TableCell>
                             <Badge variant={check.status === "Completed" ? "default" : "destructive"} className="text-xs whitespace-nowrap w-fit">
                               {check.status === 'Completed' ? <CheckCircle2 className="mr-1 h-3 w-3" /> : <AlertCircle className="mr-1 h-3 w-3" />}
-                              {check.status === 'Completed' ? 'Completed' : 'Shortage'}
+                              {check.status === 'Completed' ? '盤點完畢' : '盤點缺'}
                             </Badge>
                           </TableCell>
                           <TableCell>
