@@ -2383,19 +2383,14 @@ export function InventoryCheckClient() {
     return ["All", ...Array.from(cats)];
   }, [storeProducts]);
 
-  // Calculate completion statistics based on selected category
+  // Calculate completion statistics for ALL products (not affected by category filter)
   const completionStats = useMemo(() => {
     if (!storeProducts) return { completed: 0, incomplete: 0, total: 0 };
-    
-    // Filter products by selected category first
-    const categoryProducts = selectedCategory === 'All' 
-      ? storeProducts 
-      : storeProducts.filter(p => p.category === selectedCategory);
     
     let completed = 0;
     let incomplete = 0;
     
-    categoryProducts.forEach(product => {
+    storeProducts.forEach(product => {
       const quantity = productQuantities.get(product._id!) || { scanned: 0, total: product.computerInventory || 1 };
       if (quantity.scanned >= quantity.total) {
         completed++;
@@ -2407,9 +2402,9 @@ export function InventoryCheckClient() {
     return {
       completed,
       incomplete, 
-      total: categoryProducts.length
+      total: storeProducts.length
     };
-  }, [storeProducts, productQuantities, forceUpdateCounter, selectedCategory]);
+  }, [storeProducts, productQuantities, forceUpdateCounter]);
 
   // Calculate category statistics based on active tab
   const getCategoryStats = useMemo(() => {
@@ -3062,11 +3057,12 @@ export function InventoryCheckClient() {
             </div>
 
             {/* Empty State Message */}
-            {storeProducts.filter(p => selectedCategory === 'All' || p.category === selectedCategory)
-              .filter(p => {
+            {storeProducts.filter(p => {
                 const quantity = productQuantities.get(p._id!) || { scanned: 0, total: p.computerInventory || 1 };
                 const isCompleted = quantity.scanned >= quantity.total;
-                return activeTab === 'completed' ? isCompleted : !isCompleted;
+                const statusMatch = activeTab === 'completed' ? isCompleted : !isCompleted;
+                const categoryMatch = selectedCategory === 'All' || p.category === selectedCategory;
+                return statusMatch && categoryMatch;
               }).length === 0 && (
               <div className="text-center py-8">
                 <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 ${
@@ -3106,11 +3102,12 @@ export function InventoryCheckClient() {
             )}
 
             {/* Products Table */}
-            {storeProducts.filter(p => selectedCategory === 'All' || p.category === selectedCategory)
-              .filter(p => {
+            {storeProducts.filter(p => {
                 const quantity = productQuantities.get(p._id!) || { scanned: 0, total: p.computerInventory || 1 };
                 const isCompleted = quantity.scanned >= quantity.total;
-                return activeTab === 'completed' ? isCompleted : !isCompleted;
+                const statusMatch = activeTab === 'completed' ? isCompleted : !isCompleted;
+                const categoryMatch = selectedCategory === 'All' || p.category === selectedCategory;
+                return statusMatch && categoryMatch;
               }).length > 0 && (
             <div className="w-full">
                 <div className="rounded-md border overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100" style={{ maxWidth: '90vw' }}>
@@ -3127,11 +3124,12 @@ export function InventoryCheckClient() {
                         </TableHeader>
                         <TableBody>
                           {storeProducts
-                            .filter(p => selectedCategory === 'All' || p.category === selectedCategory)
                             .filter(p => {
                               const quantity = productQuantities.get(p._id!) || { scanned: 0, total: p.computerInventory || 1 };
                               const isCompleted = quantity.scanned >= quantity.total;
-                              return activeTab === 'completed' ? isCompleted : !isCompleted;
+                              const statusMatch = activeTab === 'completed' ? isCompleted : !isCompleted;
+                              const categoryMatch = selectedCategory === 'All' || p.category === selectedCategory;
+                              return statusMatch && categoryMatch;
                             })
                             .map((product, index) => {
                             const quantity = productQuantities.get(product._id!) || { scanned: 0, total: product.computerInventory || 1 };
@@ -3720,10 +3718,24 @@ export function InventoryCheckClient() {
                                  }, 150);
                              }}
                              placeholder="搜尋條碼、產品名稱、類別或廠牌 (留空顯示全部)..."
-                             className="font-mono"
+                             className="font-mono pr-10"
                              autoFocus
                              autoComplete="off"
                          />
+                         {/* Clear button */}
+                         {manualBarcode && (
+                             <button
+                                 type="button"
+                                 onClick={() => {
+                                     setManualBarcode("");
+                                     searchProducts("");
+                                 }}
+                                 className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
+                                 title="清除"
+                             >
+                                 <X className="h-4 w-4" />
+                             </button>
+                         )}
                          
                          {/* Suggestions Dropdown */}
                          {showSuggestions && productSuggestions.length > 0 && (
