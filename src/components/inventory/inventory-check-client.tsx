@@ -2206,17 +2206,30 @@ export function InventoryCheckClient() {
     });
 
     // Reset inputs but keep dialog open for continued input
-    setManualBarcode("");
+    // Keep barcode for products with > 5 remaining quantity, otherwise clear it
+    const remainingAfterInput = newQuantity.total - newQuantity.scanned;
+    if (remainingAfterInput <= 5) {
+      setManualBarcode("");
+    }
     setManualQuantity("1");
     setProductSuggestions([]);
     setShowSuggestions(false);
     setSelectedSuggestionIndex(-1);
     
-    // Auto-focus back to barcode input for next entry
+    // Auto-focus back to appropriate input for next entry
     setTimeout(() => {
-      const barcodeInput = document.getElementById('manual-barcode');
-      if (barcodeInput) {
-        barcodeInput.focus();
+      if (remainingAfterInput > 5) {
+        // For products with remaining quantity > 5, focus on quantity input/select
+        const quantitySelect = document.getElementById('manual-quantity');
+        if (quantitySelect) {
+          quantitySelect.focus();
+        }
+      } else {
+        // For completed or nearly completed products, focus back to barcode input
+        const barcodeInput = document.getElementById('manual-barcode');
+        if (barcodeInput) {
+          barcodeInput.focus();
+        }
       }
     }, 100);
 
@@ -2290,10 +2303,16 @@ export function InventoryCheckClient() {
   const handleBarcodeInputChange = (value: string) => {
     setManualBarcode(value);
     searchProducts(value);
+    
+    // Reset quantity to 1 when changing barcode
+    if (manualQuantity !== "1") {
+      setManualQuantity("1");
+    }
   };
 
   const handleSuggestionSelect = (product: Product) => {
     setManualBarcode(product.barcode || '');
+    setManualQuantity("1"); // Reset quantity when selecting new product
     setShowSuggestions(false);
     setProductSuggestions([]);
     setSelectedSuggestionIndex(-1);
@@ -2578,6 +2597,9 @@ export function InventoryCheckClient() {
       setProductSuggestions([]);
       setSelectedSuggestionIndex(-1);
     } else if (showManualInputDialog && storeProducts && storeProducts.length > 0) {
+      // Reset quantity when dialog opens
+      setManualQuantity("1");
+      
       // Show all products when dialog opens
       const sorted = storeProducts.sort((a, b) => a.name.localeCompare(b.name));
       setProductSuggestions(sorted);
@@ -3718,23 +3740,47 @@ export function InventoryCheckClient() {
                                  }, 150);
                              }}
                              placeholder="搜尋條碼、產品名稱、類別或廠牌 (留空顯示全部)..."
-                             className="font-mono pr-10"
+                             className="font-mono pr-24"
                              autoFocus
                              autoComplete="off"
                          />
-                         {/* Clear button */}
+                         {/* Delete buttons */}
                          {manualBarcode && (
-                             <button
-                                 type="button"
-                                 onClick={() => {
-                                     setManualBarcode("");
-                                     searchProducts("");
-                                 }}
-                                 className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
-                                 title="清除"
-                             >
-                                 <X className="h-4 w-4" />
-                             </button>
+                             <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex gap-2">
+                                 {/* Backspace button - delete one character */}
+                                 <button
+                                     type="button"
+                                     onClick={() => {
+                                         const newValue = manualBarcode.slice(0, -1);
+                                         setManualBarcode(newValue);
+                                         searchProducts(newValue);
+                                         
+                                         // Reset quantity if barcode becomes empty
+                                         if (newValue === "") {
+                                             setManualQuantity("1");
+                                         }
+                                     }}
+                                     className="bg-orange-500 hover:bg-orange-600 text-white p-2 rounded-lg shadow-sm transition-all duration-200 hover:scale-105"
+                                     title="刪除一個字符"
+                                 >
+                                     <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" />
+                                     </svg>
+                                 </button>
+                                 {/* Clear all button */}
+                                 <button
+                                     type="button"
+                                     onClick={() => {
+                                         setManualBarcode("");
+                                         setManualQuantity("1");
+                                         searchProducts("");
+                                     }}
+                                     className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg shadow-sm transition-all duration-200 hover:scale-105"
+                                     title="清除全部"
+                                 >
+                                     <X className="h-5 w-5" />
+                                 </button>
+                             </div>
                          )}
                          
                          {/* Suggestions Dropdown */}
@@ -3828,23 +3874,109 @@ export function InventoryCheckClient() {
                     <Label htmlFor="manual-quantity">
                         檢查數量:
                     </Label>
-                    <Input
-                        id="manual-quantity"
-                        type="number"
-                        min="1"
-                        value={manualQuantity}
-                        onChange={(e) => setManualQuantity(e.target.value)}
-                        placeholder="輸入數量"
-                        className="text-center text-lg font-semibold"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleManualInput();
-                          }
-                        }}
-                    />
-                    <div className="text-xs text-muted-foreground text-center">
-                        預設為 1，可根據實際檢查數量調整
-                    </div>
+                    {(() => {
+                        // Find the selected product to determine max quantity
+                        const searchTerm = manualBarcode.trim().toLowerCase();
+                        let selectedProduct = null;
+                        
+                        if (storeProducts && searchTerm) {
+                            selectedProduct = storeProducts.find(p => {
+                                const nameMatch = p.name.toLowerCase().includes(searchTerm);
+                                const barcodeMatch = p.barcode?.toLowerCase() === searchTerm || p.barcode === manualBarcode.trim();
+                                return barcodeMatch || (nameMatch && p.name.toLowerCase() === searchTerm);
+                            }) || storeProducts.find(p => {
+                                const nameMatch = p.name.toLowerCase().includes(searchTerm);
+                                const barcodeMatch = p.barcode?.toLowerCase().includes(searchTerm);
+                                return nameMatch || barcodeMatch;
+                            });
+                        }
+                        
+                        // Calculate max selectable quantity
+                        let maxQuantity = 10; // default
+                        let currentQuantity = { scanned: 0, total: 1 };
+                        
+                        if (selectedProduct) {
+                            currentQuantity = productQuantities.get(selectedProduct._id!) || { 
+                                scanned: 0, 
+                                total: selectedProduct.computerInventory || 1 
+                            };
+                                                         maxQuantity = currentQuantity.total - currentQuantity.scanned; // Show all remaining quantity
+                        }
+                        
+                                                 // Show select for products with more than 5 remaining
+                         const remainingQuantity = currentQuantity.total - currentQuantity.scanned;
+                         const useSelect = selectedProduct && remainingQuantity > 5;
+                        
+                        if (useSelect && maxQuantity > 0) {
+                            // Generate options array
+                            const options = Array.from({ length: maxQuantity }, (_, i) => i + 1);
+                            
+                            return (
+                                <div className="space-y-2">
+                                                                         <select
+                                         id="manual-quantity"
+                                         value={manualQuantity}
+                                         onChange={(e) => setManualQuantity(e.target.value)}
+                                         className="w-full text-center text-lg font-semibold border border-gray-300 rounded-md px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                         style={{ maxHeight: '200px', overflowY: 'auto' }}
+                                         size={Math.min(maxQuantity, 8)}
+                                         onKeyDown={(e) => {
+                                             if (e.key === 'Enter') {
+                                                 handleManualInput();
+                                             }
+                                         }}
+                                     >
+                                        {options.map(num => (
+                                            <option key={num} value={num.toString()}>
+                                                {num} 個
+                                            </option>
+                                        ))}
+                                    </select>
+                                                                         <div className="text-xs text-muted-foreground text-center">
+                                         從下拉選單選擇數量 (1-{maxQuantity} 個，可滾動)
+                                         {selectedProduct && (
+                                             <div className="mt-1 text-blue-600">
+                                                 📦 {selectedProduct.name} - 還需檢查: {currentQuantity.total - currentQuantity.scanned} 個
+                                             </div>
+                                         )}
+                                     </div>
+                                </div>
+                            );
+                        } else {
+                            // Fallback to input for small inventory or when no product selected
+                            return (
+                                <div className="space-y-2">
+                                    <Input
+                                        id="manual-quantity"
+                                        type="number"
+                                        min="1"
+                                        max={maxQuantity > 0 ? maxQuantity : undefined}
+                                        value={manualQuantity}
+                                        onChange={(e) => setManualQuantity(e.target.value)}
+                                        placeholder="輸入數量"
+                                        className="text-center text-lg font-semibold"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                handleManualInput();
+                                            }
+                                        }}
+                                    />
+                                                                         <div className="text-xs text-muted-foreground text-center">
+                                         {selectedProduct ? (
+                                             <div>
+                                                 手動輸入數量 {remainingQuantity > 10 ? '(大量商品)' : remainingQuantity <= 5 ? '(少量商品)' : ''} (最多 {maxQuantity} 個)
+                                                 <div className="mt-1 text-blue-600">
+                                                     📦 {selectedProduct.name} - 還需檢查: {currentQuantity.total - currentQuantity.scanned} 個
+                                                 </div>
+                                             </div>
+                                         ) : (
+                                             "先選擇產品，然後輸入數量"
+                                         )}
+                                     </div>
+                                </div>
+                            );
+                        }
+                    })()}
                 </div>
                 
                 <div className="flex gap-2">
@@ -3868,13 +4000,13 @@ export function InventoryCheckClient() {
                  </div>
                  
                  <div className="text-xs text-blue-600 bg-blue-50 p-3 rounded border">
-                     💡 <strong>搜尋提示:</strong>
+                     💡 <strong>搜尋和數量輸入提示:</strong>
                      <br />• 可以搜尋產品名稱、條碼、類別或廠牌
                      <br />• 留空搜尋框會顯示所有產品
                      <br />• 輸入時會自動顯示匹配的產品建議
                      <br />• 使用 ↑↓ 鍵選擇，Enter 確認，Esc 關閉建議
                      <br />• 綠色背景表示已完成檢查的產品
-                     <br />• 可以多次輸入同一產品的不同數量
+                     <br />• <strong>數量輸入模式:</strong> ≤5個用輸入框且清除條碼，{'>'}5個用下拉選單且保留條碼 (可滾動選擇)
                  </div>
             </div>
         </DialogContent>
